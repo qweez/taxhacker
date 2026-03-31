@@ -43,6 +43,11 @@ model User {
   bankAccounts        FinTSBankAccount[]
   auditLogs           AuditLog[]
   recurringInvoices   RecurringInvoice[]
+  companyProfile      CompanyProfile?
+  fixedAssets          FixedAsset[]
+  bookingSessions      BookingSession[]
+  manualBookingEntries ManualBookingEntry[]
+  openItems            OpenItem[]
 
   @@map("users")
 }
@@ -335,4 +340,102 @@ model RecurringInvoice {
   @@index([nextDueDate])
   @@index([isActive])
   @@map("recurring_invoices")
+}
+
+model CompanyProfile {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @unique @map("user_id") @db.Uuid
+  companyName         String?  @map("company_name")
+  legalForm           String?  @map("legal_form")
+  street              String?
+  zipCode             String?  @map("zip_code")
+  city                String?
+  taxNumber           String?  @map("tax_number")
+  vatId               String?  @map("vat_id")
+  taxOffice           String?  @map("tax_office")
+  fiscalYearStart     String?  @default("01-01") @map("fiscal_year_start")
+  phone               String?
+  email               String?
+  website             String?
+  chartOfAccounts     String?  @default("SKR04") @map("chart_of_accounts")
+  datevConsultant     String?  @map("datev_consultant")
+  datevClient         String?  @map("datev_client")
+  erpnextUrl          String?  @map("erpnext_url")
+  erpnextApiKey       String?  @map("erpnext_api_key")
+  erpnextApiSecret    String?  @map("erpnext_api_secret")
+  sageExportEnabled   Boolean  @default(false) @map("sage_export_enabled")
+  telegramBotToken    String?  @map("telegram_bot_token")
+  telegramChatId      String?  @map("telegram_chat_id")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_profiles")
+}
+
+model FixedAsset {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  name                 String
+  description          String?
+  inventoryNumber      String?  @map("inventory_number")
+  category             String   // bueromoebel, computer, software, pkw, etc.
+  acquisitionDate      DateTime @map("acquisition_date") @db.Date
+  acquisitionCost      Int      @map("acquisition_cost") // cents
+  residualValue        Int      @default(0) @map("residual_value")
+  usefulLifeYears      Int      @map("useful_life_years")
+  depreciationMethod   String   @default("linear") @map("depreciation_method") // linear, degressive, gwg, sammelposten
+  isActive             Boolean  @default(true) @map("is_active")
+  disposalDate         DateTime? @map("disposal_date") @db.Date
+  disposalProceeds     Int?     @map("disposal_proceeds")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  user                 User     @relation(fields: [userId], references: [id])
+
+  @@map("fixed_assets")
+}
+
+model BookingSession {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  name          String   // e.g. "Buchungssitzung März 2026 - Woche 1"
+  description   String?
+  periodMonth   Int      @map("period_month") // 1-12
+  periodYear    Int      @map("period_year")
+  status        String   @default("open") // open, reviewed, locked
+  lockedAt      DateTime? @map("locked_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id])
+  entries       ManualBookingEntry[]
+
+  @@map("booking_sessions")
+}
+
+model ManualBookingEntry {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId         String   @map("session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  bookingDate       DateTime @map("booking_date") @db.Date
+  receiptNumber     String?  @map("receipt_number") // Belegnummer
+  receiptDate       DateTime? @map("receipt_date") @db.Date // Belegdatum
+  description       String   // Buchungstext
+  debitAccount      String   @map("debit_account") // Sollkonto (SKR04)
+  creditAccount     String   @map("credit_account") // Habenkonto (SKR04)
+  amount            Int      // Betrag in Cent
+  taxRate           Decimal? @map("tax_rate") @db.Decimal(5,2) // 19.00, 7.00, 0.00
+  taxAmount         Int?     @map("tax_amount") // USt-Betrag in Cent
+  costCenter        String?  @map("cost_center") // Kostenstelle
+  merchant          String?
+  notes             String?
+  isTemplate        Boolean  @default(false) @map("is_template") // Buchungsvorlage
+  templateName      String?  @map("template_name")
+  transactionId     String?  @map("transaction_id") @db.Uuid // Link to Transaction if posted
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  session           BookingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@map("manual_booking_entries")
 }

@@ -11,6 +11,9 @@ import { generateInflationReport, adjustForInflation, CPI_DATA, type InflationRe
 import { generateXRechnungXML, type XRechnungData } from "@/lib/fints/xrechnung-generator"
 import { validateXRechnung, type ValidationResult } from "@/lib/fints/xrechnung-validator"
 import { generateEUER, formatEUERAsCSV } from "@/lib/fints/euer-export"
+import { generateSageBuchungsstapel } from "@/lib/sage/buchungsstapel-export"
+import { generateDebitoren, generateKreditoren } from "@/lib/sage/stammdaten-export"
+import { generateGDPdUExport, type GDPdUPackage } from "@/lib/sage/gdpdu-export"
 import { generateUStSummary } from "@/lib/fints/ust-summary"
 import { detectRecurringTransactions } from "@/lib/fints/recurring-detection"
 import type { RecurringPattern } from "@/lib/fints/recurring-detection"
@@ -36,6 +39,29 @@ import { getSettings, getLLMSettings } from "@/models/settings"
 import { lockTransaction, lockTransactionsUntil, createReversalBooking } from "@/lib/gobd"
 import { prisma } from "@/lib/db"
 import config from "@/lib/config"
+import { ERPNextClient as ERPNextClientIntegration } from "@/lib/integrations/erpnext-client"
+import {
+  syncCustomersFromERPNext,
+  syncSuppliersFromERPNext,
+  syncInvoicesFromERPNext,
+  exportTransactionsToERPNext,
+  syncPaymentEntries,
+} from "@/lib/integrations/erpnext-sync"
+import {
+  generateSageBuchungsstapel as generateSageBuchungsstapelIntegration,
+  generateSageDebitorenExport,
+  generateSageKreditorenExport,
+} from "@/lib/integrations/sage-export"
+import { generateBWA, formatBWAAsCSV, formatBWAAsHTML } from "@/lib/bwa"
+import { generateUStVAData, generateElsterXML } from "@/lib/elster-ustva"
+import {
+  generateDepreciationSchedule,
+  generateAssetRegister,
+  getUsefulLife,
+  isGWG,
+  type Asset,
+  type DepreciationMethod,
+} from "@/lib/asset-accounting"
 
 const ONE_HOUR = 60 * 60 * 1000
 const FIFTEEN_MINUTES = 15 * 60 * 1000
@@ -1122,5 +1148,185 @@ export async function applyInflationAdjustmentAction(
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message ?? "Fehler bei der Inflationsanpassung." }
+  }
+}
+
+// --- ERPNext Integration ---
+
+import { fullSync, getERPNextConfig } from "@/lib/erpnext/sync"
+import { ERPNextClient } from "@/lib/erpnext/client"
+
+export async function syncToERPNextAction(): Promise<ActionState<any>> {
+  try {
+    const user = await getCurrentUser()
+
+    const rateCheck = checkRateLimit(`${user.id}:erpnextSync`, 10, ONE_HOUR)
+    if (!rateCheck.allowed) {
+      const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+      return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
+    }
+
+    const result = await fullSync(user.id, "to_erpnext")
+
+    await logAuditEvent(user.id, "erpnext.sync_to", "to_erpnext", {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errors: result.errors.length,
+    })
+
+    return { success: result.success, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "ERPNext-Synchronisation fehlgeschlagen." }
+  }
+}
+
+export async function syncFromERPNextAction(): Promise<ActionState<any>> {
+  try {
+    const user = await getCurrentUser()
+
+    const rateCheck = checkRateLimit(`${user.id}:erpnextSync`, 10, ONE_HOUR)
+    if (!rateCheck.allowed) {
+      const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+      return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
+    }
+
+    const result = await fullSync(user.id, "from_erpnext")
+
+    await logAuditEvent(user.id, "erpnext.sync_from", "from_erpnext", {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errors: result.errors.length,
+    })
+
+    return { success: result.success, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "ERPNext-Import fehlgeschlagen." }
+  }
+}
+
+export async function getERPNextStatusAction(): Promise<ActionState<{
+  configured: boolean
+  connected: boolean
+  url: string | null
+  hasApiKey: boolean
+  hasApiSecret: boolean
+}>> {
+  try {
+    const user = await getCurrentUser()
+    const config = getERPNextConfig(user.id)
+
+    if (!config) {
+      return {
+        success: true,
+        data: {
+          configured: false,
+          connected: false,
+          url: null,
+          hasApiKey: !!process.env.ERPNEXT_API_KEY,
+          hasApiSecret: !!process.env.ERPNEXT_API_SECRET,
+        },
+      }
+    }
+
+    const client = new ERPNextClient(config)
+    const connected = await client.testConnection()
+
+    return {
+      success: true,
+      data: {
+        configured: true,
+        connected,
+        url: config.url,
+        hasApiKey: true,
+        hasApiSecret: true,
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Statusabfrage fehlgeschlagen." }
+  }
+}
+
+export async function testERPNextConnectionAction(): Promise<ActionState<{ connected: boolean; user?: string }>> {
+  try {
+    const user = await getCurrentUser()
+    const config = getERPNextConfig(user.id)
+
+    if (!config) {
+      return { success: false, error: "ERPNext ist nicht konfiguriert. Bitte Umgebungsvariablen setzen." }
+    }
+
+    const client = new ERPNextClient(config)
+    const connected = await client.testConnection()
+
+    if (!connected) {
+      return { success: false, error: "Verbindung zu ERPNext fehlgeschlagen. Bitte API-Schlüssel prüfen." }
+    }
+
+    return { success: true, data: { connected: true } }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Verbindungstest fehlgeschlagen." }
+  }
+}
+
+// --- Sage Warenwirtschaft 7.1 Export ---
+
+export async function exportSageBuchungsstapelAction(
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateSageBuchungsstapel(
+      user.id,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+    )
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Buchungsstapel-Export fehlgeschlagen." }
+  }
+}
+
+export async function exportSageDebitorenAction(): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateDebitoren(user.id)
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Debitoren-Export fehlgeschlagen." }
+  }
+}
+
+export async function exportSageKreditorenAction(): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateKreditoren(user.id)
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Kreditoren-Export fehlgeschlagen." }
+  }
+}
+
+export async function exportGDPdUAction(
+  dateFrom: string,
+  dateTo: string,
+): Promise<ActionState<GDPdUPackage>> {
+  const user = await getCurrentUser()
+
+  if (!dateFrom || !dateTo) {
+    return { success: false, error: "Zeitraum (von/bis) ist erforderlich für den GDPdU-Export." }
+  }
+
+  try {
+    const pkg = await generateGDPdUExport(
+      user.id,
+      new Date(dateFrom),
+      new Date(dateTo),
+    )
+    return { success: true, data: pkg }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "GDPdU-Export fehlgeschlagen." }
   }
 }

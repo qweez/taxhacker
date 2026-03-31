@@ -12,7 +12,7 @@ import {
   submitTanAction,
   lookupBankAction,
 } from "../actions"
-import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText, TrendingUp } from "lucide-react"
+import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText, TrendingUp, Link, Database } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
 import ReceiptMatchingPanel from "./receipt-matching-panel"
 import AuditLogPanel from "./audit-log-panel"
@@ -24,6 +24,8 @@ import InflationPanel from "./inflation-panel"
 import StatsOverview from "./stats-overview"
 import SyncSettings from "./sync-settings"
 import InvoiceForm from "./invoice-form"
+import ERPNextPanel from "./erpnext-panel"
+import SagePanel from "./sage-panel"
 
 type SafeBankAccount = {
   id: string
@@ -203,6 +205,14 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
             <Shield className="w-4 h-4" />
             <span className="hidden sm:inline">Audit-Log</span>
           </TabsTrigger>
+          <TabsTrigger value="erpnext" className="flex items-center gap-1.5">
+            <Link className="w-4 h-4" />
+            <span className="hidden sm:inline">ERPNext</span>
+          </TabsTrigger>
+          <TabsTrigger value="sage" className="flex items-center gap-1.5">
+            <Database className="w-4 h-4" />
+            <span className="hidden sm:inline">Sage</span>
+          </TabsTrigger>
         </TabsList>
 
         {/* Accounts Tab */}
@@ -343,6 +353,16 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
         {/* Audit Log Tab */}
         <TabsContent value="audit">
           <AuditLogPanel />
+        </TabsContent>
+
+        {/* ERPNext Tab */}
+        <TabsContent value="erpnext">
+          <ERPNextPanel />
+        </TabsContent>
+
+        {/* Sage Tab */}
+        <TabsContent value="sage">
+          <SagePanel />
         </TabsContent>
       </Tabs>
     </div>
