@@ -30,7 +30,7 @@ import { PROVIDERS } from "@/lib/llm-providers";
 function getInitialProviderOrder(settings: Record<string, string>) {
   let order: string[] = []
   if (!settings.llm_providers) {
-    order = ['anthropic', 'openai', 'google', 'mistral', 'ollama']
+    order = ['claude-code', 'xai', 'anthropic', 'openai', 'google', 'mistral', 'ollama']
   } else {
     order = settings.llm_providers.split(",").map(p => p.trim())
   }
@@ -214,7 +214,7 @@ function SortableProviderBlock({ id, idx, providerKey, value, handleValueChange 
           value={value.apiKey}
           onChange={e => handleValueChange(provider.key, "apiKey", e.target.value)}
           className="flex-1 border rounded px-2 py-1"
-          placeholder={provider.key === "ollama" ? "Base URL (e.g. http://localhost:11434)" : "API key"}
+          placeholder={provider.key === "ollama" ? "Base URL (e.g. http://localhost:11434)" : provider.key === "claude-code" ? "Path to claude binary (e.g. /usr/bin/claude)" : "API key"}
         />
         <input
           type="text"
@@ -227,7 +227,7 @@ function SortableProviderBlock({ id, idx, providerKey, value, handleValueChange 
       </div>
       {provider.apiDoc && (
         <small className="text-muted-foreground">
-          {provider.key === "ollama" ? "Browse models at" : "Get your API key from"}{" "}
+          {provider.key === "ollama" ? "Browse models at" : provider.key === "claude-code" ? "Documentation at" : "Get your API key from"}{" "}
           <a
             href={provider.apiDoc}
             target="_blank"

@@ -60,6 +60,36 @@ export const PROVIDERS = [
     logo: "/logo/mistral.svg"
   },
   {
+    key: "xai",
+    label: "xAI (Grok)",
+    apiKeyName: "xai_api_key",
+    modelName: "xai_model_name",
+    defaultModelName: "grok-3",
+    apiDoc: "https://console.x.ai",
+    apiDocLabel: "xAI Console",
+    placeholder: "xai-...",
+    help: {
+      url: "https://console.x.ai",
+      label: "xAI Console"
+    },
+    logo: "/logo/xai.svg"
+  },
+  {
+    key: "claude-code",
+    label: "Claude Code (CLI)",
+    apiKeyName: "claude_code_path",
+    modelName: "claude_code_model",
+    defaultModelName: "claude-opus-4-6",
+    apiDoc: "https://docs.anthropic.com/en/docs/claude-code",
+    apiDocLabel: "Claude Code Docs",
+    placeholder: "/usr/bin/claude",
+    help: {
+      url: "https://docs.anthropic.com/en/docs/claude-code",
+      label: "Claude Code Documentation"
+    },
+    logo: "/logo/anthropic.svg"
+  },
+  {
     key: "ollama",
     label: "Ollama (Local)",
     apiKeyName: "ollama_base_url",

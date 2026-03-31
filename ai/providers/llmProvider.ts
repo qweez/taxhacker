@@ -3,8 +3,15 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { ChatMistralAI } from "@langchain/mistralai"
 import { BaseMessage, HumanMessage } from "@langchain/core/messages"
 import Anthropic from "@anthropic-ai/sdk"
+import { exec } from "child_process"
+import { promisify } from "util"
+import { writeFile, unlink } from "fs/promises"
+import { tmpdir } from "os"
+import path from "path"
 
-export type LLMProvider = "openai" | "google" | "mistral" | "ollama" | "anthropic"
+const execAsync = promisify(exec)
+
+export type LLMProvider = "openai" | "google" | "mistral" | "ollama" | "anthropic" | "xai" | "claude-code"
 
 export interface LLMConfig {
   provider: LLMProvider
@@ -91,11 +98,119 @@ async function requestAnthropic(config: LLMConfig, req: LLMRequest): Promise<LLM
   }
 }
 
-async function requestLLMUnified(config: LLMConfig, req: LLMRequest): Promise<LLMResponse> {
-  // Anthropic uses its own SDK path
-  if (config.provider === "anthropic") {
-    return requestAnthropic(config, req)
+/**
+ * Handle xAI (Grok) requests via OpenAI-compatible API.
+ * xAI provides a fully OpenAI-compatible endpoint at api.x.ai/v1
+ */
+async function requestXAI(config: LLMConfig, req: LLMRequest): Promise<LLMResponse> {
+  try {
+    const model = new ChatOpenAI({
+      apiKey: config.apiKey,
+      model: config.model,
+      temperature: 0,
+      configuration: {
+        baseURL: "https://api.x.ai/v1",
+      },
+    })
+
+    const structuredModel = model.withStructuredOutput(req.schema || {}, { name: "transaction" })
+
+    let message_content: any = [{ type: "text", text: req.prompt }]
+    if (req.attachments && req.attachments.length > 0) {
+      const images = req.attachments.map((att) => ({
+        type: "image_url",
+        image_url: {
+          url: `data:${att.contentType};base64,${att.base64}`,
+        },
+      }))
+      message_content.push(...images)
+    }
+    const messages: BaseMessage[] = [new HumanMessage({ content: message_content })]
+    const response = await structuredModel.invoke(messages)
+
+    return { output: response, provider: "xai" }
+  } catch (error: any) {
+    return { output: {}, provider: "xai", error: error.message || "xAI request failed" }
   }
+}
+
+/**
+ * Handle Claude Code CLI requests.
+ * Uses `claude -p` with --json-schema for structured output.
+ * Requires Claude Code installed and authenticated on the server.
+ */
+async function requestClaudeCode(config: LLMConfig, req: LLMRequest): Promise<LLMResponse> {
+  const claudeBin = config.baseURL || "claude"
+
+  try {
+    // Write attachments to temp files if present (Claude Code can read files)
+    const tempFiles: string[] = []
+    let promptText = req.prompt
+
+    if (req.attachments && req.attachments.length > 0) {
+      for (let i = 0; i < req.attachments.length; i++) {
+        const att = req.attachments[i]
+        const ext = att.contentType?.split("/")[1] || "png"
+        const tempPath = path.join(tmpdir(), `taxhacker-att-${Date.now()}-${i}.${ext}`)
+        await writeFile(tempPath, Buffer.from(att.base64, "base64"))
+        tempFiles.push(tempPath)
+      }
+      promptText += `\n\nAnalyze the attached document images: ${tempFiles.join(", ")}`
+    }
+
+    // Build JSON schema arg
+    const schemaArg = req.schema ? `--json-schema '${JSON.stringify(req.schema)}'` : ""
+
+    const command = `${claudeBin} -p ${schemaArg} --output-format json --max-turns 1 --no-session-persistence`
+
+    // Pass prompt via stdin to avoid shell escaping issues
+    const promptFile = path.join(tmpdir(), `taxhacker-prompt-${Date.now()}.txt`)
+    await writeFile(promptFile, promptText)
+
+    const { stdout } = await execAsync(
+      `cat "${promptFile}" | ${command}`,
+      { timeout: 120000, maxBuffer: 10 * 1024 * 1024 },
+    )
+
+    // Clean up temp files
+    for (const f of [...tempFiles, promptFile]) {
+      await unlink(f).catch(() => {})
+    }
+
+    // Parse Claude Code JSON output
+    const result = JSON.parse(stdout)
+
+    if (result.is_error) {
+      return { output: {}, provider: "claude-code", error: result.result || "Claude Code returned an error" }
+    }
+
+    // result.result contains the structured output (as string if json-schema was used)
+    let output: Record<string, string>
+    if (typeof result.result === "string") {
+      try {
+        output = JSON.parse(result.result)
+      } catch {
+        output = { raw: result.result }
+      }
+    } else {
+      output = result.result
+    }
+
+    return {
+      output,
+      tokensUsed: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
+      provider: "claude-code",
+    }
+  } catch (error: any) {
+    return { output: {}, provider: "claude-code", error: error.message || "Claude Code execution failed" }
+  }
+}
+
+async function requestLLMUnified(config: LLMConfig, req: LLMRequest): Promise<LLMResponse> {
+  // Providers with custom implementations
+  if (config.provider === "anthropic") return requestAnthropic(config, req)
+  if (config.provider === "xai") return requestXAI(config, req)
+  if (config.provider === "claude-code") return requestClaudeCode(config, req)
 
   try {
     const temperature = 0

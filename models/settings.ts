@@ -9,7 +9,7 @@ export type SettingsMap = Record<string, string>
  * Helper to extract LLM provider settings from SettingsMap.
  */
 export function getLLMSettings(settings: SettingsMap) {
-  const priorities = (settings.llm_providers || "anthropic,openai,google,mistral,ollama").split(",").map(p => p.trim()).filter(Boolean)
+  const priorities = (settings.llm_providers || "claude-code,xai,anthropic,openai,google,mistral,ollama").split(",").map(p => p.trim()).filter(Boolean)
 
   const getDefault = (key: string) => PROVIDERS.find(p => p.key === key)?.defaultModelName || ""
 
@@ -40,6 +40,21 @@ export function getLLMSettings(settings: SettingsMap) {
         provider: provider as LLMProvider,
         apiKey: settings.mistral_api_key || "",
         model: settings.mistral_model_name || getDefault("mistral"),
+      }
+    }
+    if (provider === "xai") {
+      return {
+        provider: provider as LLMProvider,
+        apiKey: settings.xai_api_key || "",
+        model: settings.xai_model_name || getDefault("xai"),
+      }
+    }
+    if (provider === "claude-code") {
+      return {
+        provider: provider as LLMProvider,
+        apiKey: "claude-code",
+        model: settings.claude_code_model || getDefault("claude-code"),
+        baseURL: settings.claude_code_path || "claude",
       }
     }
     if (provider === "ollama") {

@@ -37,7 +37,9 @@ export default async function SelfHostedWelcomePage() {
     anthropic: config.ai.anthropicApiKey ?? "",
     openai: config.ai.openaiApiKey ?? "",
     google: config.ai.googleApiKey ?? "",
+    xai: config.ai.xaiApiKey ?? "",
     mistral: config.ai.mistralApiKey ?? "",
+    "claude-code": config.ai.claudeCodePath ?? "claude",
     ollama: config.ai.ollamaBaseUrl ?? "http://localhost:11434",
   }
 
