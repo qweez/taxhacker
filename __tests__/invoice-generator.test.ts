@@ -1,4 +1,13 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
+
+vi.mock("@react-pdf/renderer", () => ({
+  renderToBuffer: vi.fn(),
+}))
+
+vi.mock("@/lib/invoice-template", () => ({
+  InvoiceDocument: vi.fn(),
+}))
+
 import { calculateInvoiceTotals, type InvoiceData } from "@/lib/invoice-generator"
 
 function makeItem(
