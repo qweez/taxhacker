@@ -30,6 +30,21 @@ export const PROVIDERS = [
     logo: "/logo/google.svg"
   },
   {
+    key: "anthropic",
+    label: "Anthropic (Claude)",
+    apiKeyName: "anthropic_api_key",
+    modelName: "anthropic_model_name",
+    defaultModelName: "claude-sonnet-4-20250514",
+    apiDoc: "https://console.anthropic.com/settings/keys",
+    apiDocLabel: "Anthropic Console",
+    placeholder: "sk-ant-...",
+    help: {
+      url: "https://console.anthropic.com/settings/keys",
+      label: "Anthropic Console"
+    },
+    logo: "/logo/anthropic.svg"
+  },
+  {
     key: "mistral",
     label: "Mistral",
     apiKeyName: "mistral_api_key",

@@ -10,6 +10,8 @@ export const settingsFormSchema = z.object({
   openai_model_name: z.string().default('gpt-4o-mini'),
   google_api_key: z.string().optional(),
   google_model_name: z.string().default("gemini-2.5-flash"),
+  anthropic_api_key: z.string().optional(),
+  anthropic_model_name: z.string().default("claude-sonnet-4-20250514"),
   mistral_api_key: z.string().optional(),
   mistral_model_name: z.string().default("mistral-medium-latest"),
   ollama_base_url: z.string().default("http://localhost:11434"),

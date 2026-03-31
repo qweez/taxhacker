@@ -34,6 +34,7 @@ export default async function SelfHostedWelcomePage() {
 
   const defaultProvider = PROVIDERS[0].key
   const defaultApiKeys: Record<string, string> = {
+    anthropic: config.ai.anthropicApiKey ?? "",
     openai: config.ai.openaiApiKey ?? "",
     google: config.ai.googleApiKey ?? "",
     mistral: config.ai.mistralApiKey ?? "",
