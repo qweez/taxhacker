@@ -26,6 +26,8 @@ import SyncSettings from "./sync-settings"
 import InvoiceForm from "./invoice-form"
 import ERPNextPanel from "./erpnext-panel"
 import SagePanel from "./sage-panel"
+import BWAPanel from "./bwa-panel"
+import AnlagenPanel from "./anlagen-panel"
 
 type SafeBankAccount = {
   id: string
@@ -371,6 +373,16 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
         {/* Sage Tab */}
         <TabsContent value="sage">
           <SagePanel />
+        </TabsContent>
+
+        {/* BWA Tab */}
+        <TabsContent value="bwa">
+          <BWAPanel />
+        </TabsContent>
+
+        {/* Anlagen Tab */}
+        <TabsContent value="anlagen">
+          <AnlagenPanel />
         </TabsContent>
       </Tabs>
     </div>
