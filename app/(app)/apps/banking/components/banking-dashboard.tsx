@@ -28,6 +28,7 @@ import OpenItemsPanel from "./open-items-panel"
 import EBilanzPanel from "./ebilanz-panel"
 import BWAPanel from "./bwa-panel"
 import AnlagenPanel from "./anlagen-panel"
+import BookingMask from "./booking-mask"
 import SidebarNav, { type SidebarSection } from "./sidebar-nav"
 import DashboardOverview from "./dashboard-overview"
 import QuickActionsBar from "./quick-actions-bar"
@@ -238,6 +239,18 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
         return <DashboardOverview onNavigate={handleNavigate} />
       case "accounts":
         return renderAccountsPanel()
+      case "booking":
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">Manuelle Buchungsmaske</h2>
+              <p className="text-sm text-muted-foreground">
+                Buchungssitzungen erstellen und manuelle Buchungen erfassen.
+              </p>
+            </div>
+            <BookingMask />
+          </div>
+        )
       case "recurring":
         return (
           <div className="space-y-4">

@@ -18,6 +18,7 @@ import {
   Link,
   Link2,
   Menu,
+  PenLine,
   Receipt,
   Repeat,
   RefreshCw,
@@ -29,6 +30,7 @@ import { useState } from "react"
 export type SidebarSection =
   | "overview"
   | "accounts"
+  | "booking"
   | "receipts"
   | "reconciliation"
   | "recurring"
@@ -60,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Buchhaltung",
     items: [
       { id: "accounts", label: "Konten", icon: Building2 },
+      { id: "booking", label: "Buchen", icon: PenLine },
       { id: "receipts", label: "Belege", icon: FileText },
       { id: "reconciliation", label: "Abgleich", icon: Link2 },
       { id: "recurring", label: "Daueraufträge", icon: Repeat },
