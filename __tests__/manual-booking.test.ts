@@ -543,8 +543,8 @@ describe("createFromTemplate", () => {
       status: "open",
     } as any)
     vi.mocked(prisma.manualBookingEntry.create).mockResolvedValue({
-      id: "entry-new",
       ...template,
+      id: "entry-new",
       amount: 160000,
     } as any)
 

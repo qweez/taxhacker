@@ -32,7 +32,7 @@ export const SKR04_COMMON_ACCOUNTS = [
   { code: '3801', name: 'USt 7%', type: 'liability' },
 ] as const
 
-const VALID_ACCOUNT_CODES = new Set(SKR04_COMMON_ACCOUNTS.map(a => a.code))
+const VALID_ACCOUNT_CODES: Set<string> = new Set(SKR04_COMMON_ACCOUNTS.map(a => a.code))
 
 export function isValidSKR04Account(code: string): boolean {
   // Accept any 4-digit numeric code; highlight common ones
