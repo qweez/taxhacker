@@ -42,6 +42,7 @@ model User {
   progress            Progress[]
   bankAccounts        FinTSBankAccount[]
   auditLogs           AuditLog[]
+  recurringInvoices   RecurringInvoice[]
 
   @@map("users")
 }
@@ -302,4 +303,36 @@ model Progress {
 
   @@index([userId])
   @@map("progress")
+}
+
+model RecurringInvoice {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  merchant          String?
+  description       String?
+  amount            Int
+  currencyCode      String    @default("EUR") @map("currency_code")
+  type              String    @default("expense")
+  categoryCode      String?   @map("category_code")
+  projectCode       String?   @map("project_code")
+  frequency         String    @default("monthly")
+  startDate         DateTime  @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  nextDueDate       DateTime  @map("next_due_date") @db.Date
+  lastGeneratedAt   DateTime? @map("last_generated_at")
+  isActive          Boolean   @default(true) @map("is_active")
+  autoGenerate      Boolean   @default(false) @map("auto_generate")
+  notifyBeforeDays  Int?      @default(3) @map("notify_before_days")
+  inflationAdjusted Boolean   @default(false) @map("inflation_adjusted")
+  baseAmount        Int?      @map("base_amount")
+  baseYear          Int?      @map("base_year")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([nextDueDate])
+  @@index([isActive])
+  @@map("recurring_invoices")
 }

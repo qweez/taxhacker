@@ -19,6 +19,7 @@ const envSchema = z.object({
   OLLAMA_MODEL_NAME: z.string().default("qwen2.5vl:7b"),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z
     .string()
     .min(16, "Auth secret must be at least 16 characters")
@@ -92,6 +93,11 @@ const config = {
     apiKey: env.RESEND_API_KEY,
     from: env.RESEND_FROM_EMAIL,
     audienceId: env.RESEND_AUDIENCE_ID,
+  },
+  telegram: {
+    botToken: env.TELEGRAM_BOT_TOKEN,
+    chatId: env.TELEGRAM_CHAT_ID,
+    webhookSecret: env.TELEGRAM_WEBHOOK_SECRET,
   },
   cron: {
     secret: env.CRON_SECRET,
