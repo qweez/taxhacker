@@ -8,7 +8,7 @@ import { calcNetTotalPerCurrency, calcTotalPerCurrency, isTransactionIncomplete 
 import { cn, formatCurrency } from "@/lib/utils"
 import { Category, Field, Project, Transaction } from "@/prisma/client"
 import { formatDate } from "date-fns"
-import { ArrowDownIcon, ArrowUpIcon, File } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, Building2, File, Pencil } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 
@@ -82,6 +82,21 @@ export const standardFieldRenderers: Record<string, FieldRenderer> = {
         {(transaction.files as string[]).length}
       </div>
     ),
+  },
+  sourceType: {
+    name: "Quelle",
+    code: "sourceType",
+    classes: "min-w-[80px]",
+    sortable: true,
+    formatValue: (transaction: Transaction) => {
+      const isFints = (transaction as any).sourceType === "fints"
+      return (
+        <Badge variant={isFints ? "default" : "secondary"} className={cn("whitespace-nowrap gap-1", isFints && "bg-blue-600")}>
+          {isFints ? <Building2 className="w-3 h-3" /> : <Pencil className="w-3 h-3" />}
+          {isFints ? "Bank" : "Manuell"}
+        </Badge>
+      )
+    },
   },
   total: {
     name: "Total",

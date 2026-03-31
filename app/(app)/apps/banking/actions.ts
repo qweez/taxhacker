@@ -9,7 +9,8 @@ import { sendTelegramMessage, formatSyncReport } from "@/lib/fints/telegram"
 import type { FinTSConnectionConfig } from "@/lib/fints/client"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { addBankAccountSchema, syncBankAccountSchema, submitTanSchema, datevExportSchema } from "@/forms/banking"
-import { logAuditEvent } from "@/models/audit-log"
+import { logAuditEvent, getAuditLogs } from "@/models/audit-log"
+import { prisma } from "@/lib/db"
 
 const ONE_HOUR = 60 * 60 * 1000
 const FIFTEEN_MINUTES = 15 * 60 * 1000
@@ -268,6 +269,49 @@ export async function reconcileAction(
   const user = await getCurrentUser()
   await reconcileTransactions(user.id, bankTransactionId, manualTransactionId)
   return { success: true }
+}
+
+export async function getAuditLogsAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  const logs = await getAuditLogs(user.id, 100)
+  return {
+    success: true,
+    data: logs.map(l => ({
+      id: l.id,
+      action: l.action,
+      target: l.target,
+      details: l.details,
+      createdAt: l.createdAt.toISOString(),
+    })),
+  }
+}
+
+export async function getUnreconciledTransactionsAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: user.id,
+      sourceType: "fints",
+      isReconciled: false,
+    },
+    orderBy: { issuedAt: "desc" },
+    take: 100,
+    include: { category: true },
+  })
+  return {
+    success: true,
+    data: transactions.map(t => ({
+      id: t.id,
+      name: t.name,
+      merchant: t.merchant,
+      total: t.total,
+      currencyCode: t.currencyCode,
+      type: t.type,
+      issuedAt: t.issuedAt?.toISOString() || null,
+      categoryCode: t.categoryCode,
+      categoryName: (t as any).category?.name || null,
+    })),
+  }
 }
 
 export async function exportDatevAction(

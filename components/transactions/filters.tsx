@@ -80,6 +80,17 @@ export function TransactionSearchAndFilters({
           </Select>
         )}
 
+        <Select value={filters.sourceType} onValueChange={(value) => handleFilterChange("sourceType", value)}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Alle Quellen" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="-">Alle Quellen</SelectItem>
+            <SelectItem value="manual">Manuell</SelectItem>
+            <SelectItem value="fints">Bank (FinTS)</SelectItem>
+          </SelectContent>
+        </Select>
+
         <DateRangePicker
           defaultDate={{
             from: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
