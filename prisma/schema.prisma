@@ -200,6 +200,17 @@ model Transaction {
   isReconciled          Boolean   @default(false) @map("is_reconciled")
   reconciledAt          DateTime? @map("reconciled_at")
 
+  // GoBD compliance fields
+  isLocked              Boolean   @default(false) @map("is_locked")
+  lockedAt              DateTime? @map("locked_at")
+  bookingNumber         Int?      @default(autoincrement()) @map("booking_number")
+  reversalOfId          String?   @unique @map("reversal_of_id") @db.Uuid
+  reversedById          String?   @unique @map("reversed_by_id") @db.Uuid
+  reversalOf            Transaction?  @relation("ReversalOf", fields: [reversalOfId], references: [id])
+  reversedBy            Transaction?  @relation("ReversedBy", fields: [reversedById], references: [id])
+  reversalOfInverse     Transaction?  @relation("ReversalOf")
+  reversedByInverse     Transaction?  @relation("ReversedBy")
+
   @@index([userId])
   @@index([projectCode])
   @@index([categoryCode])
@@ -209,6 +220,8 @@ model Transaction {
   @@index([total])
   @@index([externalId])
   @@index([bankAccountId])
+  @@index([isLocked])
+  @@index([bookingNumber])
   @@map("transactions")
 }
 

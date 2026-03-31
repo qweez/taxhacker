@@ -20,6 +20,13 @@ export default async function BankingApp() {
     isActive: a.isActive,
   }))
 
+  const userProfile = {
+    businessName: user.businessName,
+    businessAddress: user.businessAddress,
+    businessBankDetails: user.businessBankDetails,
+    businessLogo: user.businessLogo,
+  }
+
   return (
     <div>
       <header className="flex flex-wrap items-center justify-between gap-2 mb-8">
@@ -29,7 +36,7 @@ export default async function BankingApp() {
           </span>
         </h2>
       </header>
-      <BankingDashboard accounts={safeAccounts} />
+      <BankingDashboard accounts={safeAccounts} userProfile={userProfile} />
     </div>
   )
 }

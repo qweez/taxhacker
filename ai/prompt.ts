@@ -1,12 +1,25 @@
 import { Category, Field, Project } from "@/prisma/client"
+import { GERMAN_INVOICE_SYSTEM_PROMPT } from "@/ai/prompts/german-invoice"
+
+/**
+ * Map of locale codes to their specialised prompt templates.
+ * When a locale key matches, the corresponding prompt is used instead of the
+ * generic default.  The German prompt extracts all mandatory fields required
+ * by section 14 UStG.
+ */
+export const LOCALE_PROMPTS: Record<string, string> = {
+  de: GERMAN_INVOICE_SYSTEM_PROMPT,
+}
 
 export function buildLLMPrompt(
   promptTemplate: string,
   fields: Field[],
   categories: Category[] = [],
-  projects: Project[] = []
+  projects: Project[] = [],
+  locale?: string
 ) {
-  let prompt = promptTemplate
+  // If a locale is provided and a specialised prompt exists, use it instead
+  let prompt = locale && LOCALE_PROMPTS[locale] ? LOCALE_PROMPTS[locale] : promptTemplate
 
   prompt = prompt.replace(
     "{fields}",

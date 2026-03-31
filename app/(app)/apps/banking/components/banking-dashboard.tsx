@@ -12,12 +12,17 @@ import {
   submitTanAction,
   lookupBankAction,
 } from "../actions"
-import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator } from "lucide-react"
+import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
+import ReceiptMatchingPanel from "./receipt-matching-panel"
 import AuditLogPanel from "./audit-log-panel"
 import DatevExportPanel from "./datev-export-panel"
 import UStPanel from "./ust-panel"
+import EUERPanel from "./euer-panel"
+import RecurringPanel from "./recurring-panel"
 import StatsOverview from "./stats-overview"
+import SyncSettings from "./sync-settings"
+import InvoiceForm from "./invoice-form"
 
 type SafeBankAccount = {
   id: string
@@ -32,7 +37,14 @@ type SafeBankAccount = {
   isActive: boolean
 }
 
-export default function BankingDashboard({ accounts: initialAccounts }: { accounts: SafeBankAccount[] }) {
+type UserProfile = {
+  businessName?: string | null
+  businessAddress?: string | null
+  businessBankDetails?: string | null
+  businessLogo?: string | null
+}
+
+export default function BankingDashboard({ accounts: initialAccounts, userProfile }: { accounts: SafeBankAccount[]; userProfile?: UserProfile }) {
   const [accounts, setAccounts] = useState(initialAccounts)
   const [showAddForm, setShowAddForm] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
@@ -145,14 +157,26 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
 
       {/* Tabs */}
       <Tabs defaultValue="accounts">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="flex flex-wrap gap-1">
           <TabsTrigger value="accounts" className="flex items-center gap-1.5">
             <Building2 className="w-4 h-4" />
             <span className="hidden sm:inline">Konten</span>
           </TabsTrigger>
+          <TabsTrigger value="recurring" className="flex items-center gap-1.5">
+            <Repeat className="w-4 h-4" />
+            <span className="hidden sm:inline">Daueraufträge</span>
+          </TabsTrigger>
+          <TabsTrigger value="receipts" className="flex items-center gap-1.5">
+            <FileText className="w-4 h-4" />
+            <span className="hidden sm:inline">Belege</span>
+          </TabsTrigger>
           <TabsTrigger value="reconciliation" className="flex items-center gap-1.5">
             <Link2 className="w-4 h-4" />
             <span className="hidden sm:inline">Abgleich</span>
+          </TabsTrigger>
+          <TabsTrigger value="invoices" className="flex items-center gap-1.5">
+            <Receipt className="w-4 h-4" />
+            <span className="hidden sm:inline">Rechnungen</span>
           </TabsTrigger>
           <TabsTrigger value="datev" className="flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4" />
@@ -161,6 +185,14 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
           <TabsTrigger value="ust" className="flex items-center gap-1.5">
             <Calculator className="w-4 h-4" />
             <span className="hidden sm:inline">USt</span>
+          </TabsTrigger>
+          <TabsTrigger value="euer" className="flex items-center gap-1.5">
+            <BookOpen className="w-4 h-4" />
+            <span className="hidden sm:inline">EÜR</span>
+          </TabsTrigger>
+          <TabsTrigger value="sync-settings" className="flex items-center gap-1.5">
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">Auto-Sync</span>
           </TabsTrigger>
           <TabsTrigger value="audit" className="flex items-center gap-1.5">
             <Shield className="w-4 h-4" />
@@ -257,6 +289,16 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
           </div>
         </TabsContent>
 
+        {/* Recurring Transactions Tab */}
+        <TabsContent value="recurring">
+          <RecurringPanel />
+        </TabsContent>
+
+        {/* Receipt Matching Tab */}
+        <TabsContent value="receipts">
+          <ReceiptMatchingPanel />
+        </TabsContent>
+
         {/* Reconciliation Tab */}
         <TabsContent value="reconciliation">
           <ReconciliationPanel />
@@ -270,6 +312,21 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
         {/* USt-Voranmeldung Tab */}
         <TabsContent value="ust">
           <UStPanel />
+        </TabsContent>
+
+        {/* EUeR Tab */}
+        <TabsContent value="euer">
+          <EUERPanel />
+        </TabsContent>
+
+        {/* Sync Settings Tab */}
+        <TabsContent value="sync-settings">
+          <SyncSettings />
+        </TabsContent>
+
+        {/* Invoices Tab */}
+        <TabsContent value="invoices">
+          <InvoiceForm userProfile={userProfile ?? {}} />
         </TabsContent>
 
         {/* Audit Log Tab */}

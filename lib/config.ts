@@ -29,6 +29,7 @@ const envSchema = z.object({
   RESEND_AUDIENCE_ID: z.string().default(""),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  CRON_SECRET: z.string().optional(),
 })
 
 const env = envSchema.parse(process.env)
@@ -91,6 +92,9 @@ const config = {
     apiKey: env.RESEND_API_KEY,
     from: env.RESEND_FROM_EMAIL,
     audienceId: env.RESEND_AUDIENCE_ID,
+  },
+  cron: {
+    secret: env.CRON_SECRET,
   },
 } as const
 

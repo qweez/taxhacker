@@ -151,6 +151,19 @@ export const createTransaction = async (userId: string, data: TransactionData): 
 }
 
 export const updateTransaction = async (id: string, userId: string, data: TransactionData): Promise<Transaction> => {
+  // GoBD: Check if transaction is locked (festgeschrieben)
+  const existing = await prisma.transaction.findUnique({
+    where: { id, userId },
+    select: { isLocked: true },
+  })
+
+  if (existing?.isLocked) {
+    throw new Error(
+      "Diese Buchung ist festgeschrieben und kann nicht mehr bearbeitet werden. " +
+      "Bitte erstellen Sie eine Stornobuchung (Reversal Booking)."
+    )
+  }
+
   const { standard, extra } = await splitTransactionDataExtraFields(data, userId)
 
   return await prisma.transaction.update({
@@ -174,6 +187,14 @@ export const deleteTransaction = async (id: string, userId: string): Promise<Tra
   const transaction = await getTransactionById(id, userId)
 
   if (transaction) {
+    // GoBD: Check if transaction is locked (festgeschrieben)
+    if ((transaction as any).isLocked) {
+      throw new Error(
+        "Diese Buchung ist festgeschrieben und kann nicht geloescht werden. " +
+        "Bitte erstellen Sie eine Stornobuchung (Reversal Booking) statt die Buchung zu loeschen."
+      )
+    }
+
     const files = Array.isArray(transaction.files) ? transaction.files : []
 
     for (const fileId of files as string[]) {
