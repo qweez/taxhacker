@@ -54,6 +54,9 @@ import {
 } from "@/lib/integrations/sage-export"
 import { generateBWA, formatBWAAsCSV, formatBWAAsHTML } from "@/lib/bwa"
 import { generateUStVAData, generateElsterXML } from "@/lib/elster-ustva"
+import { getOpenItems, createOpenItem, markAsPaid, autoMatchPayments, getAgingReport, getDebitSaldenliste, getKreditorSaldenliste } from "@/lib/open-items"
+import { getDunningCandidates, executeDunning, getDunningHistory } from "@/lib/dunning"
+import { generateEBilanzData, generateXBRLDocument } from "@/lib/ebilanz"
 import {
   generateDepreciationSchedule,
   generateAssetRegister,
@@ -1767,5 +1770,160 @@ export async function getAssetRegisterAction(): Promise<ActionState<any>> {
     return { success: true, data: register }
   } catch (error: any) {
     return { success: false, error: error.message ?? "Fehler beim Erstellen des Anlagenspiegels." }
+  }
+}
+
+// ─── Open Items (Offene Posten) Actions ──────────────────────────────
+
+export async function getOpenItemsAction(
+  type?: "debitor" | "kreditor",
+  status?: string,
+): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const items = await getOpenItems(user.id, type, status)
+    return { success: true, data: items }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der offenen Posten." }
+  }
+}
+
+export async function createOpenItemAction(data: {
+  type: "debitor" | "kreditor"
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  merchant: string
+  amount: number
+  isB2B?: boolean
+  notes?: string
+}): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const item = await createOpenItem(user.id, {
+      ...data,
+      invoiceDate: new Date(data.invoiceDate),
+      dueDate: new Date(data.dueDate),
+    })
+    return { success: true, data: item }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erstellen des offenen Postens." }
+  }
+}
+
+export async function markAsPaidAction(
+  itemId: string,
+  amount?: number,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const item = await markAsPaid(itemId, user.id, amount)
+    return { success: true, data: item }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erfassen der Zahlung." }
+  }
+}
+
+export async function autoMatchPaymentsAction(): Promise<ActionState<{ matched: number; unmatched: number }>> {
+  const user = await getCurrentUser()
+  try {
+    const result = await autoMatchPayments(user.id)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Auto-Abgleich." }
+  }
+}
+
+export async function getAgingReportAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const report = await getAgingReport(user.id)
+    return { success: true, data: report }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Fälligkeitsanalyse." }
+  }
+}
+
+export async function getDebitSaldenlisteAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const data = await getDebitSaldenliste(user.id)
+    return { success: true, data }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Debitorensaldenliste." }
+  }
+}
+
+export async function getKreditorSaldenlisteAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const data = await getKreditorSaldenliste(user.id)
+    return { success: true, data }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Kreditorensaldenliste." }
+  }
+}
+
+// ─── Dunning (Mahnwesen) Actions ─────────────────────────────────────
+
+export async function getDunningCandidatesAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const candidates = await getDunningCandidates(user.id)
+    return { success: true, data: candidates }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Mahnkandidaten." }
+  }
+}
+
+export async function executeDunningAction(openItemId: string): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const entry = await executeDunning(openItemId, user.id)
+    return { success: true, data: entry }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Mahnung." }
+  }
+}
+
+export async function getDunningHistoryAction(openItemId: string): Promise<ActionState<any[]>> {
+  try {
+    const history = await getDunningHistory(openItemId)
+    return { success: true, data: history }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Mahnhistorie." }
+  }
+}
+
+// ─── E-Bilanz Actions ────────────────────────────────────────────────
+
+export async function generateEBilanzAction(year: number): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const report = await generateEBilanzData(user.id, year)
+    return {
+      success: true,
+      data: {
+        companyName: report.companyName,
+        taxNumber: report.taxNumber,
+        fiscalYearFrom: report.fiscalYearFrom.toISOString(),
+        fiscalYearTo: report.fiscalYearTo.toISOString(),
+        balanceSheet: report.balanceSheet,
+        incomeStatement: report.incomeStatement,
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der E-Bilanz-Generierung." }
+  }
+}
+
+export async function exportEBilanzXBRLAction(year: number): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const report = await generateEBilanzData(user.id, year)
+    const xbrl = generateXBRLDocument(report)
+    return { success: true, data: xbrl }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "XBRL-Export fehlgeschlagen." }
   }
 }

@@ -21,8 +21,6 @@ import {
   Receipt,
   Repeat,
   RefreshCw,
-  Send,
-  Settings,
   Shield,
   TrendingUp,
 } from "lucide-react"
@@ -39,6 +37,8 @@ export type SidebarSection =
   | "ust"
   | "bwa"
   | "anlagen"
+  | "open-items"
+  | "ebilanz"
   | "datev"
   | "sage"
   | "erpnext"
@@ -71,6 +71,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "bwa", label: "BWA", icon: BarChart3 },
       { id: "euer", label: "EÜR", icon: BookOpen },
       { id: "ust", label: "USt-Voranmeldung", icon: Calculator },
+      { id: "ebilanz", label: "E-Bilanz", icon: FileSpreadsheet },
       { id: "anlagen", label: "Anlagenspiegel", icon: Building2 },
     ],
   },
@@ -85,6 +86,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Rechnungen",
     items: [
       { id: "invoices", label: "Erstellen", icon: Receipt },
+      { id: "open-items", label: "Offene Posten", icon: Receipt },
     ],
   },
   {

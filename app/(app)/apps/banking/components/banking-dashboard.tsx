@@ -24,6 +24,8 @@ import SyncSettings from "./sync-settings"
 import InvoiceForm from "./invoice-form"
 import ERPNextPanel from "./erpnext-panel"
 import SagePanel from "./sage-panel"
+import OpenItemsPanel from "./open-items-panel"
+import EBilanzPanel from "./ebilanz-panel"
 import BWAPanel from "./bwa-panel"
 import AnlagenPanel from "./anlagen-panel"
 import SidebarNav, { type SidebarSection } from "./sidebar-nav"
@@ -390,6 +392,30 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
               </p>
             </div>
             <ERPNextPanel />
+          </div>
+        )
+      case "open-items":
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">Offene Posten</h2>
+              <p className="text-sm text-muted-foreground">
+                Debitoren- und Kreditorenverwaltung mit Mahnwesen.
+              </p>
+            </div>
+            <OpenItemsPanel />
+          </div>
+        )
+      case "ebilanz":
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">E-Bilanz</h2>
+              <p className="text-sm text-muted-foreground">
+                Elektronische Bilanz im XBRL-Format nach HGB-Taxonomie 6.x erstellen.
+              </p>
+            </div>
+            <EBilanzPanel />
           </div>
         )
       case "sage":
