@@ -1330,3 +1330,442 @@ export async function exportGDPdUAction(
     return { success: false, error: error.message ?? "GDPdU-Export fehlgeschlagen." }
   }
 }
+
+// --- ERPNext Integration (erweitert) ---
+
+export async function connectERPNextAction(
+  url: string,
+  apiKey: string,
+  apiSecret: string,
+): Promise<ActionState<{ connected: boolean }>> {
+  const user = await getCurrentUser()
+
+  if (!url || !apiKey || !apiSecret) {
+    return { success: false, error: "URL, API-Key und API-Secret sind erforderlich." }
+  }
+
+  try {
+    const client = new ERPNextClientIntegration({ url, apiKey, apiSecret })
+    const connected = await client.testConnection()
+
+    if (!connected) {
+      return { success: false, error: "Verbindung zu ERPNext fehlgeschlagen. Bitte Zugangsdaten prüfen." }
+    }
+
+    // ERPNext-Konfiguration in CompanyProfile speichern
+    await prisma.companyProfile.upsert({
+      where: { userId: user.id },
+      update: {
+        erpnextUrl: url,
+        erpnextApiKey: apiKey,
+        erpnextApiSecret: apiSecret,
+      },
+      create: {
+        userId: user.id,
+        erpnextUrl: url,
+        erpnextApiKey: apiKey,
+        erpnextApiSecret: apiSecret,
+      },
+    })
+
+    await logAuditEvent(user.id, "erpnext.connect", url)
+    return { success: true, data: { connected: true } }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "ERPNext-Verbindung fehlgeschlagen." }
+  }
+}
+
+export async function syncFromERPNextIntegrationAction(): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  const rateCheck = checkRateLimit(`${user.id}:erpnextSyncInt`, 10, ONE_HOUR)
+  if (!rateCheck.allowed) {
+    const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+    return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
+  }
+
+  try {
+    const profile = await prisma.companyProfile.findUnique({ where: { userId: user.id } })
+    if (!profile?.erpnextUrl || !profile?.erpnextApiKey || !profile?.erpnextApiSecret) {
+      return { success: false, error: "ERPNext ist nicht konfiguriert." }
+    }
+
+    const client = new ERPNextClientIntegration({
+      url: profile.erpnextUrl,
+      apiKey: profile.erpnextApiKey,
+      apiSecret: profile.erpnextApiSecret,
+    })
+
+    const [customers, suppliers, invoices, payments] = await Promise.all([
+      syncCustomersFromERPNext(user.id, client),
+      syncSuppliersFromERPNext(user.id, client),
+      syncInvoicesFromERPNext(user.id, client),
+      syncPaymentEntries(user.id, client),
+    ])
+
+    const combined = {
+      created: customers.created + suppliers.created + invoices.created + payments.created,
+      updated: customers.updated + suppliers.updated + invoices.updated + payments.updated,
+      skipped: customers.skipped + suppliers.skipped + invoices.skipped + payments.skipped,
+      errors: [...customers.errors, ...suppliers.errors, ...invoices.errors, ...payments.errors],
+    }
+
+    await logAuditEvent(user.id, "erpnext.sync_from_integration", undefined, combined)
+    return { success: true, data: combined }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "ERPNext-Import fehlgeschlagen." }
+  }
+}
+
+export async function exportToERPNextAction(
+  transactionIds: string[],
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  if (!transactionIds || transactionIds.length === 0) {
+    return { success: false, error: "Keine Transaktionen zum Exportieren ausgewählt." }
+  }
+
+  try {
+    const profile = await prisma.companyProfile.findUnique({ where: { userId: user.id } })
+    if (!profile?.erpnextUrl || !profile?.erpnextApiKey || !profile?.erpnextApiSecret) {
+      return { success: false, error: "ERPNext ist nicht konfiguriert." }
+    }
+
+    const client = new ERPNextClientIntegration({
+      url: profile.erpnextUrl,
+      apiKey: profile.erpnextApiKey,
+      apiSecret: profile.erpnextApiSecret,
+    })
+
+    const result = await exportTransactionsToERPNext(user.id, client, transactionIds)
+    await logAuditEvent(user.id, "erpnext.export", undefined, result)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "ERPNext-Export fehlgeschlagen." }
+  }
+}
+
+// --- Sage Warenwirtschaft 7.1 Export (Integration) ---
+
+export async function exportSageBuchungsstapelIntegrationAction(
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateSageBuchungsstapelIntegration(
+      user.id,
+      dateFrom ? new Date(dateFrom) : undefined,
+      dateTo ? new Date(dateTo) : undefined,
+    )
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Buchungsstapel-Export fehlgeschlagen." }
+  }
+}
+
+export async function exportSageDebitorenIntegrationAction(): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateSageDebitorenExport(user.id)
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Debitoren-Export fehlgeschlagen." }
+  }
+}
+
+export async function exportSageKreditorenIntegrationAction(): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+  try {
+    const csv = await generateSageKreditorenExport(user.id)
+    return { success: true, data: csv }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Sage Kreditoren-Export fehlgeschlagen." }
+  }
+}
+
+// --- BWA (Betriebswirtschaftliche Auswertung) ---
+
+export async function generateBWAAction(
+  year: number,
+  month: number,
+): Promise<ActionState<{ report: any; csv: string; html: string }>> {
+  const user = await getCurrentUser()
+
+  if (!year || year < 2000 || year > 2100) {
+    return { success: false, error: "Bitte ein gültiges Jahr angeben." }
+  }
+  if (!month || month < 1 || month > 12) {
+    return { success: false, error: "Bitte einen gültigen Monat angeben (1-12)." }
+  }
+
+  try {
+    const report = await generateBWA(user.id, year, month)
+    const csv = formatBWAAsCSV(report)
+    const html = formatBWAAsHTML(report)
+    return { success: true, data: { report, csv, html } }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "BWA-Erstellung fehlgeschlagen." }
+  }
+}
+
+// --- UStVA (Elster XML) ---
+
+export async function generateUStVAAction(
+  year: number,
+  period: number,
+  isQuarterly?: boolean,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  if (!year || year < 2000 || year > 2100) {
+    return { success: false, error: "Bitte ein gültiges Jahr angeben." }
+  }
+
+  try {
+    const data = await generateUStVAData(user.id, year, period, isQuarterly)
+    return { success: true, data }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "UStVA-Berechnung fehlgeschlagen." }
+  }
+}
+
+export async function exportElsterXMLAction(
+  year: number,
+  period: number,
+  isQuarterly?: boolean,
+): Promise<ActionState<string>> {
+  const user = await getCurrentUser()
+
+  if (!year || year < 2000 || year > 2100) {
+    return { success: false, error: "Bitte ein gültiges Jahr angeben." }
+  }
+
+  try {
+    const data = await generateUStVAData(user.id, year, period, isQuarterly)
+
+    // Firmendaten aus CompanyProfile laden
+    const profile = await prisma.companyProfile.findUnique({ where: { userId: user.id } })
+    const taxNumber = profile?.taxNumber ?? ""
+    const companyName = profile?.companyName ?? user.name ?? "Unbekannt"
+
+    if (!taxNumber) {
+      return { success: false, error: "Bitte zuerst die Steuernummer im Firmenprofil hinterlegen." }
+    }
+
+    const zeitraum = isQuarterly
+      ? String(40 + period) // 41-44 für Quartale
+      : String(period).padStart(2, "0") // 01-12 für Monate
+
+    const xml = generateElsterXML(data, taxNumber, companyName, { year, zeitraum })
+    await logAuditEvent(user.id, "ustva.export_elster", undefined, { year, period, isQuarterly })
+    return { success: true, data: xml }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Elster-XML-Export fehlgeschlagen." }
+  }
+}
+
+// --- Anlagenbuchhaltung (Fixed Assets) ---
+
+export async function listAssetsAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const assets = await prisma.fixedAsset.findMany({
+      where: { userId: user.id },
+      orderBy: [{ category: "asc" }, { acquisitionDate: "asc" }],
+    })
+    return {
+      success: true,
+      data: assets.map(a => ({
+        ...a,
+        acquisitionDate: a.acquisitionDate.toISOString(),
+        disposalDate: a.disposalDate?.toISOString() ?? null,
+        createdAt: a.createdAt.toISOString(),
+        updatedAt: a.updatedAt.toISOString(),
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Anlagen." }
+  }
+}
+
+export async function createAssetAction(data: {
+  name: string
+  description?: string
+  inventoryNumber?: string
+  category: string
+  acquisitionDate: string
+  acquisitionCost: number
+  residualValue?: number
+  usefulLifeYears?: number
+  depreciationMethod?: string
+}): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  if (!data.name || !data.category || !data.acquisitionDate || !data.acquisitionCost) {
+    return { success: false, error: "Name, Kategorie, Anschaffungsdatum und -kosten sind erforderlich." }
+  }
+
+  try {
+    // Nutzungsdauer aus AfA-Tabelle ermitteln wenn nicht angegeben
+    const usefulLife = data.usefulLifeYears ?? getUsefulLife(data.category) ?? 5
+    const cost = data.acquisitionCost
+
+    // Automatisch GWG-Methode wählen
+    let method = data.depreciationMethod ?? "linear"
+    if (isGWG(cost) && method === "linear") {
+      method = "gwg"
+    }
+
+    const asset = await prisma.fixedAsset.create({
+      data: {
+        userId: user.id,
+        name: data.name,
+        description: data.description,
+        inventoryNumber: data.inventoryNumber,
+        category: data.category,
+        acquisitionDate: new Date(data.acquisitionDate),
+        acquisitionCost: cost,
+        residualValue: data.residualValue ?? 0,
+        usefulLifeYears: usefulLife,
+        depreciationMethod: method,
+      },
+    })
+
+    await logAuditEvent(user.id, "asset.create", asset.id, { name: asset.name, cost })
+    return {
+      success: true,
+      data: {
+        ...asset,
+        acquisitionDate: asset.acquisitionDate.toISOString(),
+        disposalDate: null,
+        createdAt: asset.createdAt.toISOString(),
+        updatedAt: asset.updatedAt.toISOString(),
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Anlegen der Anlage." }
+  }
+}
+
+export async function updateAssetAction(
+  id: string,
+  data: {
+    name?: string
+    description?: string
+    inventoryNumber?: string
+    category?: string
+    isActive?: boolean
+    disposalDate?: string
+    disposalProceeds?: number
+    depreciationMethod?: string
+    usefulLifeYears?: number
+  },
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  try {
+    const existing = await prisma.fixedAsset.findFirst({
+      where: { id, userId: user.id },
+    })
+
+    if (!existing) {
+      return { success: false, error: "Anlage nicht gefunden." }
+    }
+
+    const updateData: Record<string, unknown> = {}
+    if (data.name !== undefined) updateData.name = data.name
+    if (data.description !== undefined) updateData.description = data.description
+    if (data.inventoryNumber !== undefined) updateData.inventoryNumber = data.inventoryNumber
+    if (data.category !== undefined) updateData.category = data.category
+    if (data.isActive !== undefined) updateData.isActive = data.isActive
+    if (data.disposalDate !== undefined) updateData.disposalDate = new Date(data.disposalDate)
+    if (data.disposalProceeds !== undefined) updateData.disposalProceeds = data.disposalProceeds
+    if (data.depreciationMethod !== undefined) updateData.depreciationMethod = data.depreciationMethod
+    if (data.usefulLifeYears !== undefined) updateData.usefulLifeYears = data.usefulLifeYears
+
+    const asset = await prisma.fixedAsset.update({
+      where: { id },
+      data: updateData,
+    })
+
+    await logAuditEvent(user.id, "asset.update", asset.id)
+    return {
+      success: true,
+      data: {
+        ...asset,
+        acquisitionDate: asset.acquisitionDate.toISOString(),
+        disposalDate: asset.disposalDate?.toISOString() ?? null,
+        createdAt: asset.createdAt.toISOString(),
+        updatedAt: asset.updatedAt.toISOString(),
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Aktualisieren der Anlage." }
+  }
+}
+
+export async function deleteAssetAction(id: string): Promise<ActionState> {
+  const user = await getCurrentUser()
+
+  try {
+    const existing = await prisma.fixedAsset.findFirst({
+      where: { id, userId: user.id },
+    })
+
+    if (!existing) {
+      return { success: false, error: "Anlage nicht gefunden." }
+    }
+
+    await prisma.fixedAsset.delete({ where: { id } })
+    await logAuditEvent(user.id, "asset.delete", id, { name: existing.name })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Löschen der Anlage." }
+  }
+}
+
+export async function getDepreciationScheduleAction(
+  assetId: string,
+): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+
+  try {
+    const dbAsset = await prisma.fixedAsset.findFirst({
+      where: { id: assetId, userId: user.id },
+    })
+
+    if (!dbAsset) {
+      return { success: false, error: "Anlage nicht gefunden." }
+    }
+
+    const asset: Asset = {
+      id: dbAsset.id,
+      name: dbAsset.name,
+      acquisitionDate: dbAsset.acquisitionDate,
+      acquisitionCost: dbAsset.acquisitionCost,
+      usefulLifeYears: dbAsset.usefulLifeYears,
+      depreciationMethod: dbAsset.depreciationMethod as DepreciationMethod,
+      residualValue: dbAsset.residualValue,
+      category: dbAsset.category,
+      inventoryNumber: dbAsset.inventoryNumber ?? undefined,
+    }
+
+    const schedule = generateDepreciationSchedule(asset)
+    return { success: true, data: schedule }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Berechnen des AfA-Plans." }
+  }
+}
+
+export async function getAssetRegisterAction(): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  try {
+    const register = await generateAssetRegister(user.id)
+    return { success: true, data: register }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erstellen des Anlagenspiegels." }
+  }
+}

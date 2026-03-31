@@ -439,3 +439,49 @@ model ManualBookingEntry {
 
   @@map("manual_booking_entries")
 }
+
+model OpenItem {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  type            String    // debitor, kreditor
+  invoiceNumber   String    @map("invoice_number")
+  invoiceDate     DateTime  @map("invoice_date") @db.Date
+  dueDate         DateTime  @map("due_date") @db.Date
+  merchant        String
+  merchantAddress String?   @map("merchant_address")
+  amount          Int       // cents
+  paidAmount      Int       @default(0) @map("paid_amount")
+  status          String    @default("open") // open, partial, paid, overdue, dunned
+  dunningLevel    Int       @default(0) @map("dunning_level")
+  lastDunningDate DateTime? @map("last_dunning_date")
+  dunningFees     Int       @default(0) @map("dunning_fees") // accumulated fees in cents
+  interestAccrued Int       @default(0) @map("interest_accrued") // accumulated interest in cents
+  transactionId   String?   @map("transaction_id") @db.Uuid
+  notes           String?
+  isB2B           Boolean   @default(true) @map("is_b2b")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  user            User      @relation(fields: [userId], references: [id])
+  dunningHistory  DunningEntry[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("open_items")
+}
+
+model DunningEntry {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  openItemId  String   @map("open_item_id") @db.Uuid
+  level       Int      // 1, 2, 3
+  date        DateTime @db.Date
+  fee         Int      // cents
+  interest    Int      // cents
+  letterText  String?  @map("letter_text")
+  sentVia     String?  @map("sent_via") // email, post, telegram
+  createdAt   DateTime @default(now()) @map("created_at")
+  openItem    OpenItem @relation(fields: [openItemId], references: [id], onDelete: Cascade)
+
+  @@index([openItemId])
+  @@map("dunning_entries")
+}

@@ -12,7 +12,7 @@ import {
   submitTanAction,
   lookupBankAction,
 } from "../actions"
-import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText, TrendingUp, Link, Database } from "lucide-react"
+import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText, TrendingUp, Link, Database, BarChart3, FileOutput } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
 import ReceiptMatchingPanel from "./receipt-matching-panel"
 import AuditLogPanel from "./audit-log-panel"
@@ -210,8 +210,16 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
             <span className="hidden sm:inline">ERPNext</span>
           </TabsTrigger>
           <TabsTrigger value="sage" className="flex items-center gap-1.5">
-            <Database className="w-4 h-4" />
+            <FileOutput className="w-4 h-4" />
             <span className="hidden sm:inline">Sage</span>
+          </TabsTrigger>
+          <TabsTrigger value="bwa" className="flex items-center gap-1.5">
+            <BarChart3 className="w-4 h-4" />
+            <span className="hidden sm:inline">BWA</span>
+          </TabsTrigger>
+          <TabsTrigger value="anlagen" className="flex items-center gap-1.5">
+            <Building2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Anlagen</span>
           </TabsTrigger>
         </TabsList>
 
