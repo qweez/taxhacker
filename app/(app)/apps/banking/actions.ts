@@ -317,6 +317,9 @@ export async function getUnreconciledTransactionsAction(): Promise<ActionState<a
 export async function exportDatevAction(
   dateFrom?: string,
   dateTo?: string,
+  chart?: string,
+  consultantNumber?: string,
+  clientNumber?: string,
 ): Promise<ActionState<string>> {
   const parsed = datevExportSchema.safeParse({ dateFrom, dateTo })
   if (!parsed.success) {
@@ -325,10 +328,14 @@ export async function exportDatevAction(
   }
 
   const user = await getCurrentUser()
+  const chartOfAccounts = chart === "SKR03" ? "SKR03" as const : "SKR04" as const
   const csv = await generateDatevExport(
     user.id,
     parsed.data.dateFrom ? new Date(parsed.data.dateFrom) : undefined,
     parsed.data.dateTo ? new Date(parsed.data.dateTo) : undefined,
+    chartOfAccounts,
+    consultantNumber,
+    clientNumber,
   )
   return { success: true, data: csv }
 }

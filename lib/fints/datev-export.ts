@@ -4,28 +4,93 @@ import type { Transaction, Category } from "@/prisma/client"
 
 /**
  * DATEV EXTF_Buchungsstapel CSV export format.
- * Compatible with DATEV Unternehmen Online, Sage, Lexware, and most German tax advisors.
+ * Compatible with DATEV Unternehmen Online and direct import into DATEV.
  *
  * Format spec: DATEV-Format-Beschreibung (Buchungsstapel v12)
+ * Encoding: Windows-1252 (handled via BOM + encoding)
+ * Separator: Semicolon
+ * Line ending: CR+LF
  */
 
-const DATEV_HEADER_ROW = [
-  "EXTF", "700", "21", "Buchungsstapel", "12", // format info
-  "", "", "", "", // created date, imported, origin, exported
-  "", // consultant number
-  "", // client number
-  "", // fiscal year start
-  "4", // account length
-  "", "", // date from, date to
-  "", // description
-  "", "", "", // dictation shortcut, booking type, intent
-  "", // locking
-  "", // currency
-  "", "", // reserved
-  "", // derivation
-  "", "", "", "", // reserved
-  "taxhacker-fints-export", // application info
-]
+export type ChartOfAccounts = "SKR03" | "SKR04"
+
+// SKR03 account mappings
+const SKR03_ACCOUNTS: Record<string, string> = {
+  // Revenue
+  income: "8400",           // Erlöse 19% USt
+  income_7: "8300",         // Erlöse 7% USt
+  income_0: "8100",         // Steuerfreie Erlöse
+  // Expenses
+  office: "6815",           // Büromaterial
+  travel: "6670",           // Reisekosten Arbeitnehmer
+  travel_self: "6650",      // Reisekosten Unternehmer
+  software: "6830",         // Sonstige betriebliche Aufwendungen (Software/IT)
+  hosting: "6830",          // IT-Kosten
+  food: "6670",             // Bewirtungskosten
+  insurance: "6430",        // Versicherungen
+  tax: "7680",              // Sonstige Steuern
+  salary: "6000",           // Löhne und Gehälter
+  rent: "6310",             // Miete
+  telecom: "6805",          // Telefon/Internet
+  advertising: "6600",      // Werbekosten
+  vehicle: "6520",          // Kfz-Kosten
+  postage: "6800",          // Porto
+  training: "6821",         // Fortbildung
+  legal: "6825",            // Rechts- und Beratungskosten
+  accounting: "6827",       // Buchführungskosten
+  depreciation: "6220",     // AfA auf Sachanlagen
+  interest: "7300",         // Zinsen und ähnliche Aufwendungen
+  bank_fees: "6855",        // Nebenkosten des Geldverkehrs
+  gifts: "6610",            // Geschenke abzugsfähig
+  repair: "6470",           // Reparaturen
+  cleaning: "6330",         // Reinigungskosten
+  default_expense: "6300",  // Sonstige betriebliche Aufwendungen
+  default_income: "8400",   // Erlöse 19% USt
+  // Bank accounts
+  bank: "1200",             // Bank
+  cash: "1000",             // Kasse
+}
+
+// SKR04 account mappings
+const SKR04_ACCOUNTS: Record<string, string> = {
+  // Revenue
+  income: "4400",           // Erlöse 19% USt
+  income_7: "4300",         // Erlöse 7% USt
+  income_0: "4100",         // Steuerfreie Erlöse
+  // Expenses
+  office: "6815",           // Büromaterial
+  travel: "6670",           // Reisekosten Arbeitnehmer
+  travel_self: "6650",      // Reisekosten Unternehmer
+  software: "6830",         // IT-Kosten / Software
+  hosting: "6830",          // IT-Kosten
+  food: "6640",             // Bewirtungskosten
+  insurance: "6430",        // Versicherungen
+  tax: "7680",              // Sonstige Steuern
+  salary: "6000",           // Löhne und Gehälter
+  rent: "6310",             // Miete und Nebenkosten
+  telecom: "6805",          // Telefon/Internet
+  advertising: "6600",      // Werbekosten
+  vehicle: "6520",          // Kfz-Kosten
+  postage: "6800",          // Porto
+  training: "6821",         // Fortbildung
+  legal: "6825",            // Rechts- und Beratungskosten
+  accounting: "6827",       // Buchführungskosten
+  depreciation: "6220",     // AfA auf Sachanlagen
+  interest: "7300",         // Zinsen und ähnliche Aufwendungen
+  bank_fees: "6855",        // Nebenkosten des Geldverkehrs
+  gifts: "6610",            // Geschenke abzugsfähig
+  repair: "6470",           // Reparaturen
+  cleaning: "6330",         // Reinigungskosten
+  default_expense: "6300",  // Sonstige betriebliche Aufwendungen
+  default_income: "4400",   // Erlöse 19% USt
+  // Bank accounts
+  bank: "1800",             // Bank
+  cash: "1600",             // Kasse
+}
+
+function getAccountMap(chart: ChartOfAccounts): Record<string, string> {
+  return chart === "SKR04" ? SKR04_ACCOUNTS : SKR03_ACCOUNTS
+}
 
 const DATEV_COLUMN_HEADERS = [
   "Umsatz (ohne Soll/Haben-Kz)",
@@ -150,35 +215,17 @@ const DATEV_COLUMN_HEADERS = [
   "Land",
 ]
 
-// Standard DATEV account mapping (SKR03)
-const CATEGORY_TO_DATEV_ACCOUNT: Record<string, string> = {
-  // Revenue accounts
-  income: "8400",
-  // Expense accounts (common ones)
-  office: "6815",
-  travel: "6670",
-  software: "6830",
-  hosting: "6830",
-  food: "6670",
-  insurance: "6430",
-  tax: "7680",
-  salary: "6000",
-  rent: "6310",
-  telecom: "6805",
-  advertising: "6600",
-  // Default
-  default_expense: "6300",
-  default_income: "8400",
-}
-
-function getDatevAccount(tx: Transaction & { category?: Category | null }): string {
+function getDatevAccount(
+  tx: Transaction & { category?: Category | null },
+  accounts: Record<string, string>,
+): string {
   if (tx.categoryCode) {
-    const mapped = CATEGORY_TO_DATEV_ACCOUNT[tx.categoryCode.toLowerCase()]
+    const mapped = accounts[tx.categoryCode.toLowerCase()]
     if (mapped) return mapped
   }
   return tx.type === "income"
-    ? CATEGORY_TO_DATEV_ACCOUNT.default_income
-    : CATEGORY_TO_DATEV_ACCOUNT.default_expense
+    ? accounts.default_income
+    : accounts.default_expense
 }
 
 function formatDatevAmount(cents: number): string {
@@ -187,6 +234,7 @@ function formatDatevAmount(cents: number): string {
 }
 
 function formatDatevDate(date: Date): string {
+  // DATEV expects ddMM format for Belegdatum
   return format(date, "ddMM")
 }
 
@@ -197,34 +245,105 @@ function escapeField(value: string): string {
   return value
 }
 
-function transactionToDatevRow(tx: Transaction & { category?: Category | null }): string[] {
+function transactionToDatevRow(
+  tx: Transaction & { category?: Category | null },
+  accounts: Record<string, string>,
+): string[] {
   const amount = formatDatevAmount(tx.total || 0)
   const sollHaben = tx.type === "income" ? "H" : "S"
-  const account = getDatevAccount(tx)
-  const counterAccount = "1200" // Default: Bank account (SKR03)
+  const account = getDatevAccount(tx, accounts)
+  const counterAccount = accounts.bank // Bank account as counter
   const belegDatum = tx.issuedAt ? formatDatevDate(tx.issuedAt) : ""
   const buchungstext = escapeField(
     [tx.merchant, tx.name].filter(Boolean).join(" - ").slice(0, 60)
   )
+  // Belegfeld 1: unique reference for the booking (max 36 chars)
+  const belegfeld1 = escapeField((tx.externalId || tx.id).slice(0, 36))
 
   // Build row with all DATEV columns (most empty)
   const row = new Array(DATEV_COLUMN_HEADERS.length).fill("")
-  row[0] = amount
-  row[1] = sollHaben
-  row[2] = tx.currencyCode || "EUR"
-  row[6] = account
-  row[7] = counterAccount
-  row[9] = belegDatum
-  row[10] = tx.externalId?.slice(0, 36) || tx.id.slice(0, 36)
-  row[13] = buchungstext
+  row[0] = amount                   // Umsatz
+  row[1] = sollHaben                // S/H
+  row[2] = tx.currencyCode || "EUR" // WKZ
+  row[6] = account                  // Konto (Aufwand/Erlös)
+  row[7] = counterAccount           // Gegenkonto (Bank)
+  row[9] = belegDatum               // Belegdatum
+  row[10] = belegfeld1              // Belegfeld 1
+  row[13] = buchungstext            // Buchungstext
+  row[97] = "AA"                    // Buchungstyp: Automatische Abrechnung
+
+  // SEPA-Mandatsreferenz if available from FinTS
+  if (tx.text) {
+    const mandatMatch = tx.text.match(/Mandat:\s*(\S+)/)
+    if (mandatMatch) {
+      row[103] = escapeField(mandatMatch[1].slice(0, 35)) // SEPA-Mandatsreferenz
+    }
+  }
+
+  // Festschreibung: 0 = not locked (allows Steuerberater to edit)
+  row[114] = "0"
 
   return row
+}
+
+/**
+ * Build the DATEV EXTF header row.
+ * This header is mandatory for DATEV import and contains metadata.
+ */
+function buildDatevHeader(
+  chart: ChartOfAccounts,
+  dateFrom?: Date,
+  dateTo?: Date,
+  consultantNumber?: string,
+  clientNumber?: string,
+): string[] {
+  const now = new Date()
+  const fiscalYearStart = dateFrom
+    ? format(new Date(dateFrom.getFullYear(), 0, 1), "yyyyMMdd")
+    : format(new Date(now.getFullYear(), 0, 1), "yyyyMMdd")
+
+  return [
+    "EXTF",                                     // 1: Format
+    "700",                                      // 2: Version
+    "21",                                       // 3: Category (21 = Buchungsstapel)
+    "Buchungsstapel",                           // 4: Format name
+    "12",                                       // 5: Format version
+    format(now, "yyyyMMddHHmmss") + "000",      // 6: Created timestamp
+    "",                                         // 7: Imported (empty)
+    "RE",                                       // 8: Origin/Source ("RE" = Rechnungswesen)
+    "",                                         // 9: Exported by
+    "",                                         // 10: Imported by
+    consultantNumber || "10000",                // 11: Beraternummer (required)
+    clientNumber || "10001",                    // 12: Mandantennummer (required)
+    fiscalYearStart,                            // 13: WJ-Beginn (fiscal year start)
+    "4",                                        // 14: Sachkontenlänge (4 digits)
+    dateFrom ? format(dateFrom, "yyyyMMdd") : "",  // 15: Datum von
+    dateTo ? format(dateTo, "yyyyMMdd") : "",      // 16: Datum bis
+    "",                                         // 17: Bezeichnung
+    "",                                         // 18: Diktatkürzel
+    "1",                                        // 19: Buchungstyp (1 = Finanzbuchführung)
+    "0",                                        // 20: Rechnungslegungszweck (0 = unbestimmt)
+    "0",                                        // 21: Festschreibung (0 = nein)
+    "EUR",                                      // 22: WKZ
+    "",                                         // 23: Reserved
+    "",                                         // 24: Derivat
+    "",                                         // 25: Reserved
+    "",                                         // 26: Reserved
+    "",                                         // 27: Reserved
+    chart === "SKR04" ? "04" : "03",            // 28: SKR (Kontenrahmen)
+    "",                                         // 29: Branchen-Lösung
+    "",                                         // 30: Reserved
+    "taxhacker-fints-export",                   // 31: Anwendungsinfo
+  ]
 }
 
 export async function generateDatevExport(
   userId: string,
   dateFrom?: Date,
   dateTo?: Date,
+  chart: ChartOfAccounts = "SKR04",
+  consultantNumber?: string,
+  clientNumber?: string,
 ): Promise<string> {
   const where: any = { userId }
 
@@ -240,13 +359,11 @@ export async function generateDatevExport(
     orderBy: { issuedAt: "asc" },
   })
 
+  const accounts = getAccountMap(chart)
   const lines: string[] = []
 
-  // Header row
-  const header = [...DATEV_HEADER_ROW]
-  if (dateFrom) header[14] = format(dateFrom, "yyyyMMdd")
-  if (dateTo) header[15] = format(dateTo, "yyyyMMdd")
-  header[8] = format(new Date(), "yyyyMMddHHmmss") + "000"
+  // Header row (mandatory for DATEV import)
+  const header = buildDatevHeader(chart, dateFrom, dateTo, consultantNumber, clientNumber)
   lines.push(header.join(";"))
 
   // Column headers
@@ -255,9 +372,10 @@ export async function generateDatevExport(
   // Data rows
   for (const tx of transactions) {
     if (!tx.total) continue
-    const row = transactionToDatevRow(tx)
+    const row = transactionToDatevRow(tx, accounts)
     lines.push(row.join(";"))
   }
 
+  // DATEV requires CR+LF line endings
   return lines.join("\r\n")
 }
