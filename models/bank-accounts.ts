@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db"
 import type { FinTSBankAccount } from "@/prisma/client"
 import { cache } from "react"
+import { encryptPin, decryptPin } from "@/lib/fints/encryption"
 
 export type BankAccountData = {
   bankCode: string
@@ -39,7 +40,7 @@ export const createBankAccount = async (userId: string, data: BankAccountData): 
       bic: data.bic,
       fintsUrl: data.fintsUrl,
       fintsUser: data.fintsUser,
-      fintsPin: data.fintsPin,
+      fintsPin: encryptPin(data.fintsPin),
       tanMethodId: data.tanMethodId,
       tanMediaName: data.tanMediaName,
     },
@@ -62,6 +63,10 @@ export const updateBankingInfo = async (id: string, bankingInfo: object): Promis
     where: { id },
     data: { bankingInfo: bankingInfo as any },
   })
+}
+
+export function getDecryptedPin(account: FinTSBankAccount): string {
+  return decryptPin(account.fintsPin)
 }
 
 export const deleteBankAccount = async (id: string, userId: string): Promise<void> => {

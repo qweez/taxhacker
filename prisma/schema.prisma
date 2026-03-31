@@ -41,6 +41,7 @@ model User {
   appData             AppData[]
   progress            Progress[]
   bankAccounts        FinTSBankAccount[]
+  auditLogs           AuditLog[]
 
   @@map("users")
 }
@@ -236,6 +237,22 @@ model FinTSBankAccount {
   @@unique([userId, iban])
   @@index([userId])
   @@map("fints_bank_accounts")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  target    String?
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 model Currency {

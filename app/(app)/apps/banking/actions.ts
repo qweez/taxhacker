@@ -1,12 +1,18 @@
 "use server"
 
 import { getCurrentUser } from "@/lib/auth"
-import { getBankAccounts, getBankAccountById, createBankAccount, updateBankAccount, updateBankingInfo, deleteBankAccount } from "@/models/bank-accounts"
+import { getBankAccounts, getBankAccountById, createBankAccount, updateBankAccount, updateBankingInfo, deleteBankAccount, getDecryptedPin } from "@/models/bank-accounts"
 import { synchronizeBank, fetchStatements, continueSyncWithTan } from "@/lib/fints/client"
 import { syncBankTransactions, findReconciliationCandidates, reconcileTransactions } from "@/lib/fints/sync"
 import { generateDatevExport } from "@/lib/fints/datev-export"
 import { sendTelegramMessage, formatSyncReport } from "@/lib/fints/telegram"
 import type { FinTSConnectionConfig } from "@/lib/fints/client"
+import { checkRateLimit } from "@/lib/rate-limit"
+import { addBankAccountSchema, syncBankAccountSchema, submitTanSchema, datevExportSchema } from "@/forms/banking"
+import { logAuditEvent } from "@/models/audit-log"
+
+const ONE_HOUR = 60 * 60 * 1000
+const FIFTEEN_MINUTES = 15 * 60 * 1000
 
 type ActionState<T = null> = {
   success: boolean
@@ -27,7 +33,7 @@ function buildFinTSConfig(account: {
     bankCode: account.bankCode,
     fintsUrl: account.fintsUrl,
     userId: account.fintsUser,
-    pin: account.fintsPin,
+    pin: getDecryptedPin(account as any),
     bankingInfo: account.bankingInfo as object | null,
     tanMethodId: account.tanMethodId,
     tanMediaName: account.tanMediaName,
@@ -61,17 +67,28 @@ export async function addBankAccountAction(
 ): Promise<ActionState<any>> {
   const user = await getCurrentUser()
 
-  const bankCode = formData.get("bankCode") as string
-  const fintsUrl = formData.get("fintsUrl") as string
-  const fintsUser = formData.get("fintsUser") as string
-  const fintsPin = formData.get("fintsPin") as string
-  const accountNumber = formData.get("accountNumber") as string || "pending"
-  const iban = formData.get("iban") as string || undefined
-  const bankName = formData.get("bankName") as string || undefined
-
-  if (!bankCode || !fintsUrl || !fintsUser || !fintsPin) {
-    return { success: false, error: "Alle Pflichtfelder ausfüllen (BLZ, FinTS URL, Benutzer, PIN)" }
+  const rateCheck = checkRateLimit(`${user.id}:addBankAccount`, 5, ONE_HOUR)
+  if (!rateCheck.allowed) {
+    const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+    return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
   }
+
+  const parsed = addBankAccountSchema.safeParse({
+    bankCode: formData.get("bankCode"),
+    fintsUrl: formData.get("fintsUrl"),
+    fintsUser: formData.get("fintsUser"),
+    fintsPin: formData.get("fintsPin"),
+    accountNumber: formData.get("accountNumber") || undefined,
+    iban: formData.get("iban") || "",
+    bankName: formData.get("bankName") || undefined,
+  })
+
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0]
+    return { success: false, error: firstError.message }
+  }
+
+  const { bankCode, fintsUrl, fintsUser, fintsPin, accountNumber, iban, bankName } = parsed.data
 
   // Test connection first
   const syncResult = await synchronizeBank({
@@ -88,7 +105,7 @@ export async function addBankAccountAction(
   const account = await createBankAccount(user.id, {
     bankCode,
     bankName,
-    accountNumber: syncResult.accounts?.[0]?.accountNumber || accountNumber,
+    accountNumber: syncResult.accounts?.[0]?.accountNumber || accountNumber || "pending",
     iban: syncResult.accounts?.[0]?.iban || iban,
     bic: syncResult.accounts?.[0]?.bic,
     fintsUrl,
@@ -100,6 +117,8 @@ export async function addBankAccountAction(
   if (syncResult.bankingInfo) {
     await updateBankingInfo(account.id, syncResult.bankingInfo)
   }
+
+  await logAuditEvent(user.id, "bank_account.create", account.iban ?? account.accountNumber)
 
   return {
     success: true,
@@ -118,8 +137,21 @@ export async function syncBankAccountAction(
   bankAccountId: string,
   daysBack: number = 30,
 ): Promise<ActionState<any>> {
+  const parsed = syncBankAccountSchema.safeParse({ bankAccountId, daysBack })
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0]
+    return { success: false, error: firstError.message }
+  }
+
   const user = await getCurrentUser()
-  const account = await getBankAccountById(bankAccountId, user.id)
+
+  const rateCheck = checkRateLimit(`${user.id}:syncBankAccount`, 20, ONE_HOUR)
+  if (!rateCheck.allowed) {
+    const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+    return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
+  }
+
+  const account = await getBankAccountById(parsed.data.bankAccountId, user.id)
 
   if (!account) {
     return { success: false, error: "Bankkonto nicht gefunden" }
@@ -127,7 +159,7 @@ export async function syncBankAccountAction(
 
   const cfg = buildFinTSConfig(account)
   const from = new Date()
-  from.setDate(from.getDate() - daysBack)
+  from.setDate(from.getDate() - parsed.data.daysBack)
 
   const result = await fetchStatements(cfg, account.accountNumber, from)
 
@@ -159,6 +191,8 @@ export async function syncBankAccountAction(
     ...stats,
   }))
 
+  await logAuditEvent(user.id, "bank_account.sync", account.id, stats)
+
   return { success: true, data: stats }
 }
 
@@ -167,15 +201,28 @@ export async function submitTanAction(
   tanReference: string,
   tan: string,
 ): Promise<ActionState<any>> {
+  const parsed = submitTanSchema.safeParse({ bankAccountId, tanReference, tan })
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0]
+    return { success: false, error: firstError.message }
+  }
+
   const user = await getCurrentUser()
-  const account = await getBankAccountById(bankAccountId, user.id)
+
+  const rateCheck = checkRateLimit(`${user.id}:submitTan`, 10, FIFTEEN_MINUTES)
+  if (!rateCheck.allowed) {
+    const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
+    return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
+  }
+
+  const account = await getBankAccountById(parsed.data.bankAccountId, user.id)
 
   if (!account) {
     return { success: false, error: "Bankkonto nicht gefunden" }
   }
 
   const cfg = buildFinTSConfig(account)
-  const result = await continueSyncWithTan(cfg, tanReference, tan || undefined)
+  const result = await continueSyncWithTan(cfg, parsed.data.tanReference, parsed.data.tan || undefined)
 
   if (!result.success) {
     return { success: false, error: result.error }
@@ -184,6 +231,8 @@ export async function submitTanAction(
   if (result.bankingInfo) {
     await updateBankingInfo(account.id, result.bankingInfo)
   }
+
+  await logAuditEvent(user.id, "bank_account.tan_submit", account.id)
 
   return {
     success: true,
@@ -200,6 +249,7 @@ export async function submitTanAction(
 export async function deleteBankAccountAction(bankAccountId: string): Promise<ActionState> {
   const user = await getCurrentUser()
   await deleteBankAccount(bankAccountId, user.id)
+  await logAuditEvent(user.id, "bank_account.delete", bankAccountId)
   return { success: true }
 }
 
@@ -224,11 +274,17 @@ export async function exportDatevAction(
   dateFrom?: string,
   dateTo?: string,
 ): Promise<ActionState<string>> {
+  const parsed = datevExportSchema.safeParse({ dateFrom, dateTo })
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0]
+    return { success: false, error: firstError.message }
+  }
+
   const user = await getCurrentUser()
   const csv = await generateDatevExport(
     user.id,
-    dateFrom ? new Date(dateFrom) : undefined,
-    dateTo ? new Date(dateTo) : undefined,
+    parsed.data.dateFrom ? new Date(parsed.data.dateFrom) : undefined,
+    parsed.data.dateTo ? new Date(parsed.data.dateTo) : undefined,
   )
   return { success: true, data: csv }
 }
