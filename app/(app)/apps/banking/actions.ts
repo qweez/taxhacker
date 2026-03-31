@@ -7,10 +7,21 @@ import { syncBankTransactions, findReconciliationCandidates, reconcileTransactio
 import { findMatchingReceipts, linkReceiptToTransaction } from "@/lib/fints/receipt-matching"
 import { generateDatevExport } from "@/lib/fints/datev-export"
 import { generateInvoicePDF, type InvoiceData } from "@/lib/invoice-generator"
+import { generateInflationReport, adjustForInflation, CPI_DATA, type InflationReport, type InflationReportItem } from "@/lib/inflation"
+import { generateXRechnungXML, type XRechnungData } from "@/lib/fints/xrechnung-generator"
+import { validateXRechnung, type ValidationResult } from "@/lib/fints/xrechnung-validator"
 import { generateEUER, formatEUERAsCSV } from "@/lib/fints/euer-export"
 import { generateUStSummary } from "@/lib/fints/ust-summary"
 import { detectRecurringTransactions } from "@/lib/fints/recurring-detection"
 import type { RecurringPattern } from "@/lib/fints/recurring-detection"
+import {
+  getRecurringInvoices,
+  createRecurringInvoice,
+  updateRecurringInvoice,
+  deleteRecurringInvoice,
+  generateDueTransactions,
+} from "@/lib/recurring-invoices"
+import type { RecurringInvoiceData } from "@/lib/recurring-invoices"
 import { tryExtractEInvoice } from "@/lib/fints/zugferd-integration"
 import { lookupFinTSInstitute } from "@/lib/fints/institute-lookup"
 import { sendTelegramMessage, formatSyncReport } from "@/lib/fints/telegram"
@@ -24,6 +35,7 @@ import { getCategories } from "@/models/categories"
 import { getSettings, getLLMSettings } from "@/models/settings"
 import { lockTransaction, lockTransactionsUntil, createReversalBooking } from "@/lib/gobd"
 import { prisma } from "@/lib/db"
+import config from "@/lib/config"
 
 const ONE_HOUR = 60 * 60 * 1000
 const FIFTEEN_MINUTES = 15 * 60 * 1000
@@ -793,6 +805,55 @@ export async function extractEInvoiceAction(
   }
 }
 
+export async function setupTelegramWebhookAction(): Promise<ActionState<{ webhookUrl: string }>> {
+  await getCurrentUser()
+
+  const baseURL = config.app.baseURL
+  const secret = config.telegram.webhookSecret
+
+  if (!config.telegram.botToken) {
+    return { success: false, error: "TELEGRAM_BOT_TOKEN ist nicht konfiguriert." }
+  }
+
+  if (!secret) {
+    return { success: false, error: "TELEGRAM_WEBHOOK_SECRET ist nicht konfiguriert." }
+  }
+
+  try {
+    const res = await fetch(`${baseURL}/api/telegram/setup?secret=${encodeURIComponent(secret)}`)
+    const data = await res.json()
+
+    if (data.ok) {
+      return { success: true, data: { webhookUrl: data.webhookUrl } }
+    } else {
+      return { success: false, error: data.error || "Webhook-Einrichtung fehlgeschlagen." }
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message || "Webhook-Einrichtung fehlgeschlagen." }
+  }
+}
+
+export async function getTelegramStatusAction(): Promise<ActionState<{
+  configured: boolean
+  botToken: boolean
+  chatId: boolean
+  webhookSecret: boolean
+  webhookUrl: string
+}>> {
+  await getCurrentUser()
+
+  return {
+    success: true,
+    data: {
+      configured: !!(config.telegram.botToken && config.telegram.chatId),
+      botToken: !!config.telegram.botToken,
+      chatId: !!config.telegram.chatId,
+      webhookSecret: !!config.telegram.webhookSecret,
+      webhookUrl: `${config.app.baseURL}/api/telegram/webhook`,
+    },
+  }
+}
+
 export async function generateInvoiceAction(
   data: InvoiceData,
 ): Promise<ActionState<string>> {
@@ -804,5 +865,262 @@ export async function generateInvoiceAction(
     return { success: true, data: base64 }
   } catch (error: any) {
     return { success: false, error: error.message ?? "PDF-Erstellung fehlgeschlagen." }
+  }
+}
+
+export async function generateXRechnungAction(
+  data: XRechnungData,
+): Promise<ActionState<{ xml: string; validation: ValidationResult }>> {
+  await getCurrentUser()
+
+  try {
+    const xml = generateXRechnungXML(data)
+    const validation = validateXRechnung(xml)
+
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: `XRechnung-Validierung fehlgeschlagen: ${validation.errors.join("; ")}`,
+        data: { xml, validation },
+      }
+    }
+
+    return { success: true, data: { xml, validation } }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "XRechnung-Erstellung fehlgeschlagen." }
+  }
+}
+
+export async function validateXRechnungAction(
+  xml: string,
+): Promise<ActionState<ValidationResult>> {
+  await getCurrentUser()
+
+  if (!xml || typeof xml !== "string" || xml.trim().length === 0) {
+    return { success: false, error: "Kein XML-Inhalt angegeben." }
+  }
+
+  try {
+    const result = validateXRechnung(xml)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Validierung fehlgeschlagen." }
+  }
+}
+
+// --- Recurring Invoice / Subscription management ---
+
+export type SerializedRecurringInvoice = {
+  id: string
+  name: string
+  merchant: string | null
+  description: string | null
+  amount: number
+  currencyCode: string
+  type: string
+  categoryCode: string | null
+  projectCode: string | null
+  frequency: string
+  startDate: string
+  endDate: string | null
+  nextDueDate: string
+  lastGeneratedAt: string | null
+  isActive: boolean
+  autoGenerate: boolean
+  notifyBeforeDays: number | null
+  inflationAdjusted: boolean
+  baseAmount: number | null
+  baseYear: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+function serializeRecurringInvoice(inv: any): SerializedRecurringInvoice {
+  return {
+    id: inv.id,
+    name: inv.name,
+    merchant: inv.merchant,
+    description: inv.description,
+    amount: inv.amount,
+    currencyCode: inv.currencyCode,
+    type: inv.type,
+    categoryCode: inv.categoryCode,
+    projectCode: inv.projectCode,
+    frequency: inv.frequency,
+    startDate: inv.startDate instanceof Date ? inv.startDate.toISOString() : inv.startDate,
+    endDate: inv.endDate ? (inv.endDate instanceof Date ? inv.endDate.toISOString() : inv.endDate) : null,
+    nextDueDate: inv.nextDueDate instanceof Date ? inv.nextDueDate.toISOString() : inv.nextDueDate,
+    lastGeneratedAt: inv.lastGeneratedAt ? (inv.lastGeneratedAt instanceof Date ? inv.lastGeneratedAt.toISOString() : inv.lastGeneratedAt) : null,
+    isActive: inv.isActive,
+    autoGenerate: inv.autoGenerate,
+    notifyBeforeDays: inv.notifyBeforeDays,
+    inflationAdjusted: inv.inflationAdjusted,
+    baseAmount: inv.baseAmount,
+    baseYear: inv.baseYear,
+    createdAt: inv.createdAt instanceof Date ? inv.createdAt.toISOString() : inv.createdAt,
+    updatedAt: inv.updatedAt instanceof Date ? inv.updatedAt.toISOString() : inv.updatedAt,
+  }
+}
+
+export async function listRecurringInvoicesAction(): Promise<ActionState<SerializedRecurringInvoice[]>> {
+  const user = await getCurrentUser()
+  try {
+    const invoices = await getRecurringInvoices(user.id)
+    return { success: true, data: invoices.map(serializeRecurringInvoice) }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Dauerauftraege." }
+  }
+}
+
+export async function createRecurringInvoiceAction(
+  data: RecurringInvoiceData,
+): Promise<ActionState<SerializedRecurringInvoice>> {
+  const user = await getCurrentUser()
+  try {
+    const invoice = await createRecurringInvoice(user.id, data)
+    await logAuditEvent(user.id, "recurring_invoice.create", invoice.id)
+    return { success: true, data: serializeRecurringInvoice(invoice) }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erstellen des Dauerauftrags." }
+  }
+}
+
+export async function updateRecurringInvoiceAction(
+  id: string,
+  data: Partial<RecurringInvoiceData>,
+): Promise<ActionState<SerializedRecurringInvoice>> {
+  const user = await getCurrentUser()
+  try {
+    const invoice = await updateRecurringInvoice(id, user.id, data)
+    await logAuditEvent(user.id, "recurring_invoice.update", invoice.id)
+    return { success: true, data: serializeRecurringInvoice(invoice) }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Aktualisieren des Dauerauftrags." }
+  }
+}
+
+export async function deleteRecurringInvoiceAction(
+  id: string,
+): Promise<ActionState> {
+  const user = await getCurrentUser()
+  try {
+    await deleteRecurringInvoice(id, user.id)
+    await logAuditEvent(user.id, "recurring_invoice.delete", id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Loeschen des Dauerauftrags." }
+  }
+}
+
+export async function generateDueTransactionsAction(): Promise<
+  ActionState<{ generated: number; skipped: number }>
+> {
+  const user = await getCurrentUser()
+  try {
+    const result = await generateDueTransactions(user.id)
+    await logAuditEvent(user.id, "recurring_invoice.generate", undefined, result)
+    return { success: true, data: result }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Generieren faelliger Transaktionen." }
+  }
+}
+
+// --- Inflation adjustment actions ---
+
+type SerializedInflationReportItem = {
+  name: string
+  merchant: string | null
+  baseAmount: number
+  baseYear: number
+  currentAmount: number
+  inflationRate: number
+  difference: number
+  shouldAdjust: boolean
+}
+
+type SerializedInflationReport = {
+  items: SerializedInflationReportItem[]
+  totalBaseAmount: number
+  totalCurrentAmount: number
+  totalDifference: number
+  averageInflation: number
+  generatedAt: string
+  thresholdPercent: number
+}
+
+export async function generateInflationReportAction(
+  thresholdPercent?: number,
+): Promise<ActionState<SerializedInflationReport>> {
+  const user = await getCurrentUser()
+
+  try {
+    const report = await generateInflationReport(user.id, thresholdPercent)
+    return {
+      success: true,
+      data: {
+        ...report,
+        generatedAt: report.generatedAt.toISOString(),
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Inflationsberechnung." }
+  }
+}
+
+export async function applyInflationAdjustmentAction(
+  recurringInvoiceId: string,
+): Promise<ActionState> {
+  const user = await getCurrentUser()
+
+  try {
+    // First try to find a recurring invoice by ID
+    const invoices = await getRecurringInvoices(user.id)
+    let invoice = invoices.find(i => i.id === recurringInvoiceId)
+
+    // If not found by ID, try to match by name/merchant (from inflation report)
+    if (!invoice) {
+      invoice = invoices.find(
+        i => i.name === recurringInvoiceId || i.merchant === recurringInvoiceId,
+      )
+    }
+
+    if (!invoice) {
+      return { success: false, error: "Wiederkehrender Posten nicht gefunden." }
+    }
+
+    const currentYear = new Date().getFullYear()
+    const baseYear = invoice.baseYear ?? invoice.startDate.getFullYear()
+    const baseAmount = invoice.baseAmount ?? invoice.amount
+
+    // Clamp years to available CPI data
+    const cpiYears = Object.keys(CPI_DATA).map(Number).sort((a, b) => a - b)
+    const minYear = cpiYears[0]
+    const maxYear = cpiYears[cpiYears.length - 1]
+    const clampedBase = Math.max(minYear, Math.min(maxYear, baseYear))
+    const clampedCurrent = Math.max(minYear, Math.min(maxYear, currentYear))
+
+    if (clampedBase === clampedCurrent) {
+      return { success: false, error: "Keine Inflationsanpassung möglich (gleiches Jahr)." }
+    }
+
+    const adjustedAmount = adjustForInflation(baseAmount, clampedBase, clampedCurrent)
+
+    await updateRecurringInvoice(invoice.id, user.id, {
+      amount: adjustedAmount,
+      inflationAdjusted: true,
+      baseAmount: baseAmount,
+      baseYear: clampedBase,
+    } as any)
+
+    await logAuditEvent(user.id, "recurring_invoice.inflation_adjust", invoice.id, {
+      baseAmount,
+      baseYear: clampedBase,
+      adjustedAmount,
+      currentYear: clampedCurrent,
+    })
+
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler bei der Inflationsanpassung." }
   }
 }

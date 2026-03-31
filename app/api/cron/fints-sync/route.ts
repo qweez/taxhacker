@@ -6,6 +6,7 @@ import { fetchStatements } from "@/lib/fints/client"
 import { syncBankTransactions } from "@/lib/fints/sync"
 import { sendTelegramMessage, formatSyncReport } from "@/lib/fints/telegram"
 import { logAuditEvent } from "@/models/audit-log"
+import { generateDueTransactions } from "@/lib/recurring-invoices"
 import type { FinTSConnectionConfig } from "@/lib/fints/client"
 
 const SYNC_DAYS_BACK = 7
@@ -160,10 +161,28 @@ export async function GET(request: NextRequest) {
   const successCount = results.filter(r => r.success).length
   const failCount = results.filter(r => !r.success).length
 
+  // Generate due recurring invoices for each unique user
+  const userIds = [...new Set(accounts.map(a => a.userId))]
+  const recurringResults: Record<string, { generated: number; skipped: number }> = {}
+
+  for (const userId of userIds) {
+    try {
+      const result = await generateDueTransactions(userId)
+      recurringResults[userId] = result
+      if (result.generated > 0) {
+        await logAuditEvent(userId, "recurring_invoice.cron_generate", undefined, result)
+      }
+    } catch (error: any) {
+      console.error(`[cron/fints-sync] Failed to generate recurring invoices for user ${userId}:`, error)
+      recurringResults[userId] = { generated: 0, skipped: 0 }
+    }
+  }
+
   return NextResponse.json({
     message: `Cron sync complete. ${successCount} succeeded, ${failCount} failed.`,
     syncedAt: new Date().toISOString(),
     totalAccounts: accounts.length,
     results,
+    recurringInvoices: recurringResults,
   })
 }

@@ -14,7 +14,7 @@ import { prisma } from "@/lib/db"
 
 const mockedFindMany = vi.mocked(prisma.transaction.findMany)
 
-function makeTx(overrides: Record<string, any> = {}) {
+function makeTx(overrides: Record<string, any> = {}): any {
   return {
     id: "tx-001",
     userId: "user-1",

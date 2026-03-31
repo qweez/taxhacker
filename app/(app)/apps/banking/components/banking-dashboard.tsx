@@ -12,7 +12,7 @@ import {
   submitTanAction,
   lookupBankAction,
 } from "../actions"
-import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText } from "lucide-react"
+import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator, Settings, Repeat, BookOpen, Receipt, FileText, TrendingUp } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
 import ReceiptMatchingPanel from "./receipt-matching-panel"
 import AuditLogPanel from "./audit-log-panel"
@@ -20,6 +20,7 @@ import DatevExportPanel from "./datev-export-panel"
 import UStPanel from "./ust-panel"
 import EUERPanel from "./euer-panel"
 import RecurringPanel from "./recurring-panel"
+import InflationPanel from "./inflation-panel"
 import StatsOverview from "./stats-overview"
 import SyncSettings from "./sync-settings"
 import InvoiceForm from "./invoice-form"
@@ -194,6 +195,10 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
             <Settings className="w-4 h-4" />
             <span className="hidden sm:inline">Auto-Sync</span>
           </TabsTrigger>
+          <TabsTrigger value="inflation" className="flex items-center gap-1.5">
+            <TrendingUp className="w-4 h-4" />
+            <span className="hidden sm:inline">Inflation</span>
+          </TabsTrigger>
           <TabsTrigger value="audit" className="flex items-center gap-1.5">
             <Shield className="w-4 h-4" />
             <span className="hidden sm:inline">Audit-Log</span>
@@ -327,6 +332,12 @@ export default function BankingDashboard({ accounts: initialAccounts, userProfil
         {/* Invoices Tab */}
         <TabsContent value="invoices">
           <InvoiceForm userProfile={userProfile ?? {}} />
+        </TabsContent>
+
+        {/* Audit Log Tab */}
+        {/* Inflation Tab */}
+        <TabsContent value="inflation">
+          <InflationPanel />
         </TabsContent>
 
         {/* Audit Log Tab */}

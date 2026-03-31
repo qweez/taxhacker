@@ -4,8 +4,8 @@ import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { getAuditLogsAction, listBankAccountsAction, toggleAutoSyncAction } from "../actions"
-import { Settings, Clock, CheckCircle2, XCircle, RefreshCw, Eye, EyeOff } from "lucide-react"
+import { getAuditLogsAction, listBankAccountsAction, toggleAutoSyncAction, getTelegramStatusAction, setupTelegramWebhookAction } from "../actions"
+import { Settings, Clock, CheckCircle2, XCircle, RefreshCw, Eye, EyeOff, Send, Bot } from "lucide-react"
 
 type SyncAuditEntry = {
   id: string
@@ -25,12 +25,23 @@ type BankAccountInfo = {
   lastSyncStatus: string | null
 }
 
+type TelegramStatus = {
+  configured: boolean
+  botToken: boolean
+  chatId: boolean
+  webhookSecret: boolean
+  webhookUrl: string
+}
+
 export default function SyncSettings() {
   const [accounts, setAccounts] = useState<BankAccountInfo[]>([])
   const [syncLogs, setSyncLogs] = useState<SyncAuditEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [showSecret, setShowSecret] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
+  const [telegramSetupLoading, setTelegramSetupLoading] = useState(false)
+  const [telegramSetupResult, setTelegramSetupResult] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -56,7 +67,24 @@ export default function SyncSettings() {
       setSyncLogs(cronLogs)
     }
 
+    const telegramResult = await getTelegramStatusAction()
+    if (telegramResult.success && telegramResult.data) {
+      setTelegramStatus(telegramResult.data)
+    }
+
     setLoading(false)
+  }
+
+  async function handleSetupTelegramWebhook() {
+    setTelegramSetupLoading(true)
+    setTelegramSetupResult(null)
+    const result = await setupTelegramWebhookAction()
+    if (result.success) {
+      setTelegramSetupResult("Webhook erfolgreich eingerichtet!")
+    } else {
+      setTelegramSetupResult(`Fehler: ${result.error}`)
+    }
+    setTelegramSetupLoading(false)
   }
 
   async function handleToggleAutoSync(accountId: string, currentlyActive: boolean) {
@@ -216,6 +244,95 @@ export default function SyncSettings() {
             })}
           </div>
         )}
+      </Card>
+
+      {/* Telegram Bot */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Bot className="w-5 h-5" />
+          Telegram Bot
+        </h3>
+
+        <div className="space-y-4">
+          {/* Status */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium">Status:</span>
+            {telegramStatus?.configured ? (
+              <Badge className="bg-green-600 text-white">Verbunden</Badge>
+            ) : (
+              <Badge className="bg-gray-400 text-white">Nicht verbunden</Badge>
+            )}
+          </div>
+
+          {/* Configuration checklist */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              {telegramStatus?.botToken ? (
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-500" />
+              )}
+              <span className="text-muted-foreground">TELEGRAM_BOT_TOKEN</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              {telegramStatus?.chatId ? (
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-500" />
+              )}
+              <span className="text-muted-foreground">TELEGRAM_CHAT_ID</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              {telegramStatus?.webhookSecret ? (
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-500" />
+              )}
+              <span className="text-muted-foreground">TELEGRAM_WEBHOOK_SECRET</span>
+            </div>
+          </div>
+
+          {/* Webhook URL */}
+          {telegramStatus?.webhookUrl && (
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">Webhook-URL:</p>
+              <code className="bg-muted px-3 py-2 rounded text-sm block overflow-x-auto">
+                {telegramStatus.webhookUrl}
+              </code>
+            </div>
+          )}
+
+          {/* Setup button */}
+          {telegramStatus?.configured && telegramStatus?.webhookSecret && (
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={telegramSetupLoading}
+                onClick={handleSetupTelegramWebhook}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {telegramSetupLoading ? "Einrichten..." : "Webhook einrichten"}
+              </Button>
+              {telegramSetupResult && (
+                <span className={`text-sm ${telegramSetupResult.startsWith("Fehler") ? "text-red-500" : "text-green-600"}`}>
+                  {telegramSetupResult}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Usage info */}
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <p className="text-sm font-medium">So funktioniert der Telegram Bot:</p>
+            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Setze <code className="bg-muted px-1 rounded">TELEGRAM_BOT_TOKEN</code>, <code className="bg-muted px-1 rounded">TELEGRAM_CHAT_ID</code> und <code className="bg-muted px-1 rounded">TELEGRAM_WEBHOOK_SECRET</code> in den Umgebungsvariablen.</li>
+              <li>Klicke auf &quot;Webhook einrichten&quot; um den Bot zu aktivieren.</li>
+              <li>Sende ein Foto oder PDF einer Rechnung an den Bot.</li>
+              <li>Der Bot analysiert die Rechnung automatisch mit KI und erstellt eine Transaktion.</li>
+            </ol>
+          </div>
+        </div>
       </Card>
     </div>
   )

@@ -27,7 +27,7 @@ function fakeTx(
   issuedAt: Date,
   categoryCode: string | null = null,
   id?: string,
-) {
+): any {
   return {
     id: id ?? crypto.randomUUID(),
     merchant,
