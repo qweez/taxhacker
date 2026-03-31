@@ -8,11 +8,35 @@ services:
       - SELF_HOSTED_MODE=true
       - UPLOAD_PATH=/app/data/uploads
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/taxhacker
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL_NAME=qwen2.5vl:7b
     volumes:
       - ./data:/app/data
     restart: unless-stopped
     depends_on:
       - postgres
+      - ollama
+    logging:
+      driver: "local"
+      options:
+        max-size: "100M"
+        max-file: "3"
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    restart: unless-stopped
+    # Uncomment the following lines for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     logging:
       driver: "local"
       options:

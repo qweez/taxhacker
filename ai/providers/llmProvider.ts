@@ -3,12 +3,13 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { ChatMistralAI } from "@langchain/mistralai"
 import { BaseMessage, HumanMessage } from "@langchain/core/messages"
 
-export type LLMProvider = "openai" | "google" | "mistral"
+export type LLMProvider = "openai" | "google" | "mistral" | "ollama"
 
 export interface LLMConfig {
   provider: LLMProvider
   apiKey: string
   model: string
+  baseURL?: string
 }
 
 export interface LLMSettings {
@@ -50,6 +51,16 @@ async function requestLLMUnified(config: LLMConfig, req: LLMRequest): Promise<LL
         model: config.model,
         temperature: temperature,
       })
+    } else if (config.provider === "ollama") {
+      // Ollama exposes an OpenAI-compatible API at /v1
+      model = new ChatOpenAI({
+        apiKey: "ollama",
+        model: config.model,
+        temperature: temperature,
+        configuration: {
+          baseURL: `${config.baseURL || "http://localhost:11434"}/v1`,
+        },
+      })
     } else {
       return {
         output: {},
@@ -58,7 +69,10 @@ async function requestLLMUnified(config: LLMConfig, req: LLMRequest): Promise<LL
       }
     }
 
-    const structuredModel = model.withStructuredOutput(req.schema, { name: "transaction" })
+    const structuredOutputOptions = config.provider === "ollama"
+      ? { name: "transaction", method: "jsonSchema" as const }
+      : { name: "transaction" }
+    const structuredModel = model.withStructuredOutput(req.schema, structuredOutputOptions)
 
     let message_content: any = [{ type: "text", text: req.prompt }]
     if (req.attachments && req.attachments.length > 0) {

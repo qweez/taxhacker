@@ -12,7 +12,9 @@ export const settingsFormSchema = z.object({
   google_model_name: z.string().default("gemini-2.5-flash"),
   mistral_api_key: z.string().optional(),
   mistral_model_name: z.string().default("mistral-medium-latest"),
-  llm_providers: z.string().default('openai,google,mistral'),
+  ollama_base_url: z.string().default("http://localhost:11434"),
+  ollama_model_name: z.string().default("qwen2.5vl:7b"),
+  llm_providers: z.string().default('openai,google,mistral,ollama'),
   prompt_analyse_new_file: z.string().optional(),
   is_welcome_message_hidden: z.string().optional(),
 })

@@ -44,4 +44,19 @@ export const PROVIDERS = [
     },
     logo: "/logo/mistral.svg"
   },
+  {
+    key: "ollama",
+    label: "Ollama (Local)",
+    apiKeyName: "ollama_base_url",
+    modelName: "ollama_model_name",
+    defaultModelName: "qwen2.5vl:7b",
+    apiDoc: "https://ollama.com/library",
+    apiDocLabel: "Ollama Model Library",
+    placeholder: "http://localhost:11434",
+    help: {
+      url: "https://ollama.com",
+      label: "Ollama Documentation"
+    },
+    logo: "/logo/ollama.svg"
+  },
 ]

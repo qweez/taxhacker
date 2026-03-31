@@ -214,7 +214,7 @@ function SortableProviderBlock({ id, idx, providerKey, value, handleValueChange 
           value={value.apiKey}
           onChange={e => handleValueChange(provider.key, "apiKey", e.target.value)}
           className="flex-1 border rounded px-2 py-1"
-          placeholder="API key"
+          placeholder={provider.key === "ollama" ? "Base URL (e.g. http://localhost:11434)" : "API key"}
         />
         <input
           type="text"
@@ -227,7 +227,7 @@ function SortableProviderBlock({ id, idx, providerKey, value, handleValueChange 
       </div>
       {provider.apiDoc && (
         <small className="text-muted-foreground">
-          Get your API key from{" "}
+          {provider.key === "ollama" ? "Browse models at" : "Get your API key from"}{" "}
           <a
             href={provider.apiDoc}
             target="_blank"
