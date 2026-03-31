@@ -37,6 +37,8 @@ export type SidebarSection =
   | "invoices"
   | "euer"
   | "ust"
+  | "bwa"
+  | "anlagen"
   | "datev"
   | "sage"
   | "erpnext"
@@ -66,8 +68,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Berichte",
     items: [
+      { id: "bwa", label: "BWA", icon: BarChart3 },
       { id: "euer", label: "EÜR", icon: BookOpen },
       { id: "ust", label: "USt-Voranmeldung", icon: Calculator },
+      { id: "anlagen", label: "Anlagenspiegel", icon: Building2 },
     ],
   },
   {

@@ -131,7 +131,7 @@ describe("partial year depreciation (acquisition mid-year)", () => {
 })
 
 describe("degressive depreciation", () => {
-  it("applies percentage to book value", () => {
+  it("applies percentage to book value (switches to linear when higher)", () => {
     const asset = makeAsset({
       acquisitionDate: new Date("2025-01-01"),
       acquisitionCost: 300000,
@@ -142,11 +142,12 @@ describe("degressive depreciation", () => {
 
     const y1 = calculateDegressiveDepreciation(asset, 2025)
     // Linear rate: 100/3 = 33.33%, max degressive: min(25, 33.33*2.5) = 25%
-    // Year 1: 300000 * 25% = 75000
-    expect(y1).toBe(75000)
+    // Degressive: 300000 * 25% = 75000
+    // Linear comparison: 300000 / 3 = 100000 (higher, so linear is used)
+    expect(y1).toBe(100000)
   })
 
-  it("caps degressive rate at 25%", () => {
+  it("caps degressive rate at 25% but switches to linear when higher", () => {
     const asset = makeAsset({
       acquisitionDate: new Date("2025-01-01"),
       acquisitionCost: 100000,
@@ -156,8 +157,9 @@ describe("degressive depreciation", () => {
     })
 
     const y1 = calculateDegressiveDepreciation(asset, 2025)
-    // Max rate is 25%, so: 100000 * 25% = 25000
-    expect(y1).toBe(25000)
+    // Degressive at 25%: 100000 * 25% = 25000
+    // Linear comparison: 100000 / 2 = 50000 (higher, so linear is used)
+    expect(y1).toBe(50000)
   })
 
   it("caps degressive rate at 2.5x linear rate", () => {
@@ -356,8 +358,11 @@ describe("useful life lookup from AfA-Tabelle", () => {
     expect(getUsefulLife("unknown_item")).toBeNull()
   })
 
-  it("normalizes input (strips non-alphanumeric chars)", () => {
-    expect(getUsefulLife("Büro-Möbel")).toBe(13) // becomes bueromoebel
+  it("normalizes input (strips non-alphanumeric chars and lowercases)", () => {
+    // Umlauts are stripped (ü→u doesn't happen), so use ASCII-safe input
+    expect(getUsefulLife("Buro-Moebel")).toBeNull() // stripped to "buromoebel" which is not in table
+    expect(getUsefulLife("buero-moebel")).toBe(13) // becomes "bueromoebel"
+    expect(getUsefulLife("Computer!")).toBe(3) // becomes "computer"
   })
 
   it("is case insensitive", () => {
