@@ -12,10 +12,12 @@ import {
   submitTanAction,
   lookupBankAction,
 } from "../actions"
-import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet } from "lucide-react"
+import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet, Calculator } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
 import AuditLogPanel from "./audit-log-panel"
 import DatevExportPanel from "./datev-export-panel"
+import UStPanel from "./ust-panel"
+import StatsOverview from "./stats-overview"
 
 type SafeBankAccount = {
   id: string
@@ -138,9 +140,12 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
         </Card>
       )}
 
+      {/* Stats Overview */}
+      <StatsOverview />
+
       {/* Tabs */}
       <Tabs defaultValue="accounts">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="accounts" className="flex items-center gap-1.5">
             <Building2 className="w-4 h-4" />
             <span className="hidden sm:inline">Konten</span>
@@ -152,6 +157,10 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
           <TabsTrigger value="datev" className="flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4" />
             <span className="hidden sm:inline">DATEV</span>
+          </TabsTrigger>
+          <TabsTrigger value="ust" className="flex items-center gap-1.5">
+            <Calculator className="w-4 h-4" />
+            <span className="hidden sm:inline">USt</span>
           </TabsTrigger>
           <TabsTrigger value="audit" className="flex items-center gap-1.5">
             <Shield className="w-4 h-4" />
@@ -256,6 +265,11 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
         {/* DATEV Export Tab */}
         <TabsContent value="datev">
           <DatevExportPanel />
+        </TabsContent>
+
+        {/* USt-Voranmeldung Tab */}
+        <TabsContent value="ust">
+          <UStPanel />
         </TabsContent>
 
         {/* Audit Log Tab */}

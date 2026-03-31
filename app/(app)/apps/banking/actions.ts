@@ -422,3 +422,32 @@ export async function exportDatevAction(
   )
   return { success: true, data: csv }
 }
+
+export async function getUStSummaryAction(
+  dateFrom: string,
+  dateTo: string,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+
+  if (!dateFrom || !dateTo) {
+    return { success: false, error: "Zeitraum (von/bis) ist erforderlich." }
+  }
+
+  const summary = await generateUStSummary(
+    user.id,
+    new Date(dateFrom),
+    new Date(dateTo),
+  )
+
+  // Serialize dates for client transport
+  return {
+    success: true,
+    data: {
+      ...summary,
+      period: {
+        from: summary.period.from.toISOString(),
+        to: summary.period.to.toISOString(),
+      },
+    },
+  }
+}
