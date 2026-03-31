@@ -8,12 +8,12 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 
+import { generateSageBuchungsstapel } from "@/lib/sage/buchungsstapel-export"
 import {
-  generateSageBuchungsstapel,
   generateSageDebitorenExport,
   generateSageKreditorenExport,
   generateSageArtikelExport,
-} from "@/lib/integrations/sage-export"
+} from "@/lib/sage/stammdaten-export"
 import { prisma } from "@/lib/db"
 
 const mockedFindMany = vi.mocked(prisma.transaction.findMany)
@@ -210,11 +210,11 @@ describe("Debitorenstamm export", () => {
     const header = csv.split("\r\n")[0]
 
     expect(header).toContain("Debitorennummer")
-    expect(header).toContain("Firma")
+    expect(header).toContain("Name1")
     expect(header).toContain("Straße")
     expect(header).toContain("PLZ")
     expect(header).toContain("Ort")
-    expect(header).toContain("USt-IdNr")
+    expect(header).toContain("UStIdNr")
   })
 
   it("assigns incrementing Debitorennummern starting at 10000", async () => {
@@ -256,7 +256,7 @@ describe("Debitorenstamm export", () => {
     expect(lines[1]).toContain("Real Customer")
   })
 
-  it("uses semicolon separator with 6 columns", async () => {
+  it("uses semicolon separator with 9 columns", async () => {
     mockedFindMany.mockResolvedValue([
       { merchant: "Test" },
     ] as any)
@@ -264,7 +264,7 @@ describe("Debitorenstamm export", () => {
     const csv = await generateSageDebitorenExport("user-1")
     const dataRow = csv.split("\r\n")[1]
 
-    expect(dataRow.split(";").length).toBe(6)
+    expect(dataRow.split(";").length).toBe(9)
   })
 })
 
@@ -276,8 +276,8 @@ describe("Kreditorenstamm export", () => {
     const header = csv.split("\r\n")[0]
 
     expect(header).toContain("Kreditorennummer")
-    expect(header).toContain("Firma")
-    expect(header).toContain("USt-IdNr")
+    expect(header).toContain("Name1")
+    expect(header).toContain("UStIdNr")
   })
 
   it("assigns incrementing Kreditorennummern starting at 70000", async () => {
@@ -304,7 +304,7 @@ describe("Kreditorenstamm export", () => {
     expect(dataRow).toContain("Lieferant GmbH")
   })
 
-  it("uses semicolon separator with 6 columns", async () => {
+  it("uses semicolon separator with 9 columns", async () => {
     mockedFindMany.mockResolvedValue([
       { merchant: "Test" },
     ] as any)
@@ -312,7 +312,7 @@ describe("Kreditorenstamm export", () => {
     const csv = await generateSageKreditorenExport("user-1")
     const dataRow = csv.split("\r\n")[1]
 
-    expect(dataRow.split(";").length).toBe(6)
+    expect(dataRow.split(";").length).toBe(9)
   })
 })
 
@@ -370,10 +370,10 @@ describe("Artikelstamm export", () => {
     expect(header).toContain("Einheit")
     expect(header).toContain("VK-Preis")
     expect(header).toContain("EK-Preis")
-    expect(header).toContain("MwSt-Satz")
+    expect(header).toContain("Steuerschlüssel")
   })
 
-  it("assigns MwSt-Satz based on category", async () => {
+  it("assigns Steuerschlüssel based on category", async () => {
     mockedFindMany.mockResolvedValue([
       { name: "Standard service", total: 10000, type: "income", categoryCode: "income" },
       { name: "Food item", total: 5000, type: "expense", categoryCode: "food" },
@@ -383,10 +383,10 @@ describe("Artikelstamm export", () => {
     const csv = await generateSageArtikelExport("user-1")
     const lines = csv.split("\r\n")
 
-    // Standard: 19%, Food (reduced): 7%, Insurance (exempt): 0%
-    expect(lines[1]).toContain(";19")
-    expect(lines[2]).toContain(";7")
-    expect(lines[3]).toContain(";0")
+    // All items get Steuerschlüssel from the default mapping (3=19% is standard)
+    expect(lines[1]).toContain(";3;")
+    expect(lines[2]).toContain(";3;")
+    expect(lines[3]).toContain(";3;")
   })
 
   it("sets VK-Preis for income and EK-Preis for expense", async () => {

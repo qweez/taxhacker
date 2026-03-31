@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db"
+import type { SageExportOptions } from "./buchungsstapel-export"
 
 /**
  * Sage Warenwirtschaft 7.1 (2016) Stammdaten (master data) CSV exports.
@@ -7,6 +8,10 @@ import { prisma } from "@/lib/db"
  * Format: semicolon-separated CSV, Windows-1252 compatible
  * Line endings: CR+LF
  */
+
+// Steuerfreie Kategorien
+const EXEMPT_CATEGORIES = new Set(["income_0", "insurance", "interest", "bank_fees", "salary", "tax"])
+const REDUCED_RATE_CATEGORIES = new Set(["income_7", "food"])
 
 export type SageDebitor = {
   Debitorennummer: string
@@ -198,3 +203,8 @@ export async function generateArtikelstamm(userId: string): Promise<string> {
 
   return lines.join("\r\n")
 }
+
+// Alias-Exports für Kompatibilität
+export const generateSageDebitorenExport = generateDebitoren
+export const generateSageKreditorenExport = generateKreditoren
+export const generateSageArtikelExport = generateArtikelstamm

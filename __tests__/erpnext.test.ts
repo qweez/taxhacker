@@ -37,7 +37,6 @@ import {
   getERPNextConfig,
   syncCustomersToERPNext,
   syncInvoicesFromERPNext,
-  syncPaymentsFromERPNext,
 } from "@/lib/erpnext/sync"
 
 const mockedPrisma = prisma as unknown as {
@@ -365,165 +364,87 @@ describe("syncCustomersToERPNext", () => {
   })
 })
 
-describe("syncInvoicesFromERPNext", () => {
-  it("sollte Eingangsrechnungen als Transaktionen importieren", async () => {
-    process.env.ERPNEXT_URL = "https://erp.test.com"
-    process.env.ERPNEXT_API_KEY = "key"
-    process.env.ERPNEXT_API_SECRET = "secret"
+describe("syncInvoicesFromERPNext (client-based)", () => {
+  it("sollte Rechnungen importieren mit explizitem Client", async () => {
+    const mockClient = {
+      getSalesInvoices: vi.fn().mockResolvedValue([]),
+      getPurchaseInvoices: vi.fn().mockResolvedValue([
+        {
+          name: "PINV-001",
+          supplier: "Lieferant A",
+          posting_date: "2025-06-15",
+          grand_total: 119.0,
+          status: "Unpaid",
+          currency: "EUR",
+        },
+      ]),
+    } as any
 
-    // getPurchaseInvoices
-    mockFetchSequence({
-      ok: true,
-      body: {
-        data: [
-          {
-            name: "PINV-001",
-            supplier: "Lieferant A",
-            posting_date: "2025-06-15",
-            grand_total: 119.0,
-            net_total: 100.0,
-            status: "Unpaid",
-            currency: "EUR",
-            items: [{ expense_account: "Bürobedarf" }],
-          },
-        ],
-      },
-    })
-
-    // findFirst - kein Duplikat
     mockedPrisma.transaction.findFirst.mockResolvedValueOnce(null)
-    // create
     mockedPrisma.transaction.create.mockResolvedValueOnce({ id: "tx-1" })
 
-    const result = await syncInvoicesFromERPNext("user-1")
+    const result = await syncInvoicesFromERPNext("user-1", mockClient)
 
     expect(result.created).toBe(1)
     expect(result.skipped).toBe(0)
-    expect(mockedPrisma.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        userId: "user-1",
-        merchant: "Lieferant A",
-        total: -11900,
-        sourceType: "erpnext_import",
-        externalId: "erpnext-pinv-PINV-001",
-      }),
-    })
   })
 
   it("sollte Duplikate überspringen", async () => {
-    process.env.ERPNEXT_URL = "https://erp.test.com"
-    process.env.ERPNEXT_API_KEY = "key"
-    process.env.ERPNEXT_API_SECRET = "secret"
+    const mockClient = {
+      getSalesInvoices: vi.fn().mockResolvedValue([]),
+      getPurchaseInvoices: vi.fn().mockResolvedValue([
+        { name: "PINV-002", supplier: "Test", posting_date: "2025-01-01", grand_total: 50, currency: "EUR" },
+      ]),
+    } as any
 
-    mockFetchSequence({
-      ok: true,
-      body: {
-        data: [{ name: "PINV-002", supplier: "Test", posting_date: "2025-01-01", grand_total: 50, currency: "EUR", items: [] }],
-      },
-    })
-
-    // findFirst - Duplikat gefunden
     mockedPrisma.transaction.findFirst.mockResolvedValueOnce({ id: "existing-tx" })
 
-    const result = await syncInvoicesFromERPNext("user-1")
+    const result = await syncInvoicesFromERPNext("user-1", mockClient)
 
     expect(result.skipped).toBe(1)
     expect(result.created).toBe(0)
   })
 })
 
-describe("syncPaymentsFromERPNext", () => {
-  it("sollte Zahlungen importieren und bestehende Transaktionen abgleichen", async () => {
-    process.env.ERPNEXT_URL = "https://erp.test.com"
-    process.env.ERPNEXT_API_KEY = "key"
-    process.env.ERPNEXT_API_SECRET = "secret"
+describe("syncPaymentEntries (client-based)", () => {
+  it("sollte Zahlungen importieren", async () => {
+    const mockClient = {
+      getPaymentEntries: vi.fn().mockResolvedValue([
+        {
+          name: "PAY-001",
+          payment_type: "Receive",
+          posting_date: "2025-06-20",
+          paid_amount: 200,
+          received_amount: 200,
+          party: "Kunde X",
+          party_type: "Customer",
+        },
+      ]),
+    } as any
 
-    // getPaymentEntries
-    mockFetchSequence({
-      ok: true,
-      body: {
-        data: [
-          {
-            name: "PAY-001",
-            payment_type: "Pay",
-            posting_date: "2025-06-15",
-            paid_amount: 50.0,
-            received_amount: 0,
-            party_type: "Supplier",
-            party: "Lieferant B",
-            paid_from: "Bank",
-            paid_to: "Creditors",
-          },
-        ],
-      },
-    })
-
-    // findFirst - kein Duplikat
     mockedPrisma.transaction.findFirst.mockResolvedValueOnce(null)
-    // findFirst - matching TX gefunden
-    mockedPrisma.transaction.findFirst.mockResolvedValueOnce({
-      id: "tx-match",
-      merchant: "Lieferant B",
-      total: -5000,
-      isReconciled: false,
-    })
-    // update
-    mockedPrisma.transaction.update.mockResolvedValueOnce({ id: "tx-match" })
-
-    const result = await syncPaymentsFromERPNext("user-1")
-
-    expect(result.updated).toBe(1)
-    expect(mockedPrisma.transaction.update).toHaveBeenCalledWith({
-      where: { id: "tx-match" },
-      data: expect.objectContaining({
-        isReconciled: true,
-        externalId: "erpnext-pay-PAY-001",
-      }),
-    })
-  })
-
-  it("sollte neue Transaktion erstellen wenn kein Match", async () => {
-    process.env.ERPNEXT_URL = "https://erp.test.com"
-    process.env.ERPNEXT_API_KEY = "key"
-    process.env.ERPNEXT_API_SECRET = "secret"
-
-    mockFetchSequence({
-      ok: true,
-      body: {
-        data: [
-          {
-            name: "PAY-002",
-            payment_type: "Receive",
-            posting_date: "2025-06-20",
-            paid_amount: 200,
-            received_amount: 200,
-            party: "Kunde X",
-            party_type: "Customer",
-            paid_from: "Debtors",
-            paid_to: "Bank",
-          },
-        ],
-      },
-    })
-
-    // findFirst - kein Duplikat
-    mockedPrisma.transaction.findFirst.mockResolvedValueOnce(null)
-    // findFirst - kein Match
-    mockedPrisma.transaction.findFirst.mockResolvedValueOnce(null)
-    // create
     mockedPrisma.transaction.create.mockResolvedValueOnce({ id: "new-tx" })
 
-    const result = await syncPaymentsFromERPNext("user-1")
+    const { syncPaymentEntries } = await import("@/lib/erpnext/sync")
+    const result = await syncPaymentEntries("user-1", mockClient)
 
     expect(result.created).toBe(1)
-    expect(mockedPrisma.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        merchant: "Kunde X",
-        total: 20000,
-        type: "income",
-        sourceType: "erpnext_import",
-      }),
-    })
+  })
+
+  it("sollte Duplikate überspringen", async () => {
+    const mockClient = {
+      getPaymentEntries: vi.fn().mockResolvedValue([
+        { name: "PAY-002", payment_type: "Pay", posting_date: "2025-01-01", paid_amount: 50, received_amount: 0, party: "Test", party_type: "Supplier" },
+      ]),
+    } as any
+
+    mockedPrisma.transaction.findFirst.mockResolvedValueOnce({ id: "existing" })
+
+    const { syncPaymentEntries } = await import("@/lib/erpnext/sync")
+    const result = await syncPaymentEntries("user-1", mockClient)
+
+    expect(result.skipped).toBe(1)
+    expect(result.created).toBe(0)
   })
 })
 

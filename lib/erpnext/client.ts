@@ -120,6 +120,20 @@ export type ERPNextItem = {
   is_purchase_item: boolean
 }
 
+export type ERPNextStockLedgerEntry = {
+  name: string
+  item_code: string
+  warehouse: string
+  posting_date: string
+  posting_time: string
+  actual_qty: number
+  qty_after_transaction: number
+  valuation_rate: number
+  stock_value: number
+  voucher_type: string
+  voucher_no: string
+}
+
 export type ERPNextAccount = {
   name: string
   account_name: string
@@ -365,6 +379,33 @@ export class ERPNextClient {
       filters: JSON.stringify([["Account", "is_group", "=", 0]]),
       limit_page_length: 0,
     })
+    return res.data
+  }
+
+  // --- Lagerbestand (Stock Ledger) ---
+
+  async getStockLedger(filters?: InvoiceFilters): Promise<ERPNextStockLedgerEntry[]> {
+    const params: Record<string, unknown> = {
+      fields: JSON.stringify([
+        "name", "item_code", "warehouse", "posting_date", "posting_time",
+        "actual_qty", "qty_after_transaction", "valuation_rate", "stock_value",
+        "voucher_type", "voucher_no",
+      ]),
+      limit_page_length: 0,
+    }
+
+    const filterList: Array<[string, string, string, string]> = []
+    if (filters?.from_date) {
+      filterList.push(["Stock Ledger Entry", "posting_date", ">=", filters.from_date])
+    }
+    if (filters?.to_date) {
+      filterList.push(["Stock Ledger Entry", "posting_date", "<=", filters.to_date])
+    }
+    if (filterList.length > 0) {
+      params.filters = JSON.stringify(filterList)
+    }
+
+    const res = await this.request<ERPNextListResponse<ERPNextStockLedgerEntry>>("GET", "/api/resource/Stock Ledger Entry", params)
     return res.data
   }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-import { ERPNextClient, ERPNextError } from "@/lib/integrations/erpnext-client"
-import type { ERPNextConfig } from "@/lib/integrations/erpnext-client"
+import { ERPNextClient, ERPNextError } from "@/lib/erpnext/client"
+import type { ERPNextConfig } from "@/lib/erpnext/client"
 
 const mockFetch = vi.fn()
 vi.stubGlobal("fetch", mockFetch)

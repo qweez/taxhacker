@@ -124,7 +124,7 @@ export async function syncCustomersToERPNext(userId: string): Promise<SyncResult
  * ERPNext-Lieferanten als TaxHacker-Händler importieren
  * (Erstellt Transaktions-Platzhalter für neue Lieferanten)
  */
-export async function syncSuppliersFromERPNext(userId: string): Promise<SyncResult> {
+async function syncSuppliersFromERPNextInternal(userId: string): Promise<SyncResult> {
   const result = emptySyncResult("from_erpnext")
   const client = getClient(userId)
 
@@ -266,7 +266,7 @@ export async function syncInvoicesToERPNext(
 /**
  * ERPNext-Eingangsrechnungen als TaxHacker-Transaktionen importieren
  */
-export async function syncInvoicesFromERPNext(
+async function syncInvoicesFromERPNextInternal(
   userId: string,
   dateFrom?: string,
   dateTo?: string,
@@ -439,8 +439,8 @@ export async function fullSync(
     }
 
     if (direction === "from_erpnext" || direction === "bidirectional") {
-      mergeResult(await syncSuppliersFromERPNext(userId))
-      mergeResult(await syncInvoicesFromERPNext(userId))
+      mergeResult(await syncSuppliersFromERPNextInternal(userId))
+      mergeResult(await syncInvoicesFromERPNextInternal(userId))
       mergeResult(await syncPaymentsFromERPNext(userId))
     }
   } catch (error: unknown) {
@@ -451,4 +451,255 @@ export async function fullSync(
 
   combined.syncedAt = new Date()
   return combined
+}
+
+// --- Client-basierte Sync-Funktionen (für CompanyProfile-basierte Konfiguration) ---
+
+export type ERPNextSyncResult = {
+  created: number
+  updated: number
+  skipped: number
+  errors: string[]
+}
+
+/**
+ * Kunden aus ERPNext importieren (mit explizitem Client)
+ */
+export async function syncCustomersFromERPNext(
+  userId: string,
+  client: ERPNextClient,
+): Promise<ERPNextSyncResult> {
+  const result: ERPNextSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] }
+
+  let customers
+  try {
+    customers = await client.getCustomers()
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+    result.errors.push(`Fehler beim Abrufen der Kunden: ${msg}`)
+    return result
+  }
+
+  for (const customer of customers) {
+    try {
+      const existing = await prisma.transaction.findFirst({
+        where: { userId, merchant: customer.customer_name, type: "income", sourceType: "erpnext" },
+      })
+      if (existing) { result.skipped++; continue }
+
+      await prisma.transaction.create({
+        data: {
+          userId,
+          name: `Kunde: ${customer.customer_name}`,
+          merchant: customer.customer_name,
+          type: "income",
+          sourceType: "erpnext",
+          externalId: `erpnext-customer-${customer.name}`,
+          description: [customer.customer_type, customer.customer_group, customer.tax_id ? `USt-IdNr: ${customer.tax_id}` : null].filter(Boolean).join(" | "),
+          total: 0,
+          currencyCode: "EUR",
+        },
+      })
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler bei Kunde "${customer.customer_name}": ${msg}`)
+    }
+  }
+  return result
+}
+
+/**
+ * Lieferanten aus ERPNext importieren (mit explizitem Client)
+ */
+export async function syncSuppliersFromERPNext(
+  userId: string,
+  client: ERPNextClient,
+): Promise<ERPNextSyncResult> {
+  const result: ERPNextSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] }
+
+  let suppliers
+  try {
+    suppliers = await client.getSuppliers()
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+    result.errors.push(`Fehler beim Abrufen der Lieferanten: ${msg}`)
+    return result
+  }
+
+  for (const supplier of suppliers) {
+    try {
+      const existing = await prisma.transaction.findFirst({
+        where: { userId, merchant: supplier.supplier_name, type: "expense", sourceType: "erpnext" },
+      })
+      if (existing) { result.skipped++; continue }
+
+      await prisma.transaction.create({
+        data: {
+          userId,
+          name: `Lieferant: ${supplier.supplier_name}`,
+          merchant: supplier.supplier_name,
+          type: "expense",
+          sourceType: "erpnext",
+          externalId: `erpnext-supplier-${supplier.name}`,
+          description: [supplier.supplier_group, supplier.country, supplier.tax_id ? `USt-IdNr: ${supplier.tax_id}` : null].filter(Boolean).join(" | "),
+          total: 0,
+          currencyCode: "EUR",
+        },
+      })
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler bei Lieferant "${supplier.supplier_name}": ${msg}`)
+    }
+  }
+  return result
+}
+
+/**
+ * Rechnungen aus ERPNext importieren (mit explizitem Client)
+ */
+export async function syncInvoicesFromERPNext(
+  userId: string,
+  client: ERPNextClient,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<ERPNextSyncResult> {
+  const result: ERPNextSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] }
+  const filters = { from_date: dateFrom, to_date: dateTo }
+
+  let salesInvoices: any[] = []
+  try { salesInvoices = await client.getSalesInvoices(filters) } catch { salesInvoices = [] }
+
+  for (const inv of salesInvoices) {
+    try {
+      const externalId = `erpnext-sinv-${inv.name}`
+      const existing = await prisma.transaction.findFirst({ where: { userId, externalId } })
+      if (existing) { result.skipped++; continue }
+
+      await prisma.transaction.create({
+        data: {
+          userId, name: `Rechnung ${inv.name}`, merchant: inv.customer,
+          type: "income", total: Math.round(inv.grand_total * 100),
+          currencyCode: inv.currency || "EUR", issuedAt: new Date(inv.posting_date),
+          sourceType: "erpnext", externalId, description: `Status: ${inv.status}`,
+        },
+      })
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler bei Rechnung "${inv.name}": ${msg}`)
+    }
+  }
+
+  let purchaseInvoices: any[] = []
+  try { purchaseInvoices = await client.getPurchaseInvoices(filters) } catch { purchaseInvoices = [] }
+
+  for (const inv of purchaseInvoices) {
+    try {
+      const externalId = `erpnext-pinv-${inv.name}`
+      const existing = await prisma.transaction.findFirst({ where: { userId, externalId } })
+      if (existing) { result.skipped++; continue }
+
+      await prisma.transaction.create({
+        data: {
+          userId, name: `Eingangsrechnung ${inv.name}`, merchant: inv.supplier,
+          type: "expense", total: Math.round(inv.grand_total * 100),
+          currencyCode: inv.currency || "EUR", issuedAt: new Date(inv.posting_date),
+          sourceType: "erpnext", externalId, description: `Status: ${inv.status}`,
+        },
+      })
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler bei Eingangsrechnung "${inv.name}": ${msg}`)
+    }
+  }
+  return result
+}
+
+/**
+ * TaxHacker-Transaktionen nach ERPNext exportieren (mit explizitem Client)
+ */
+export async function exportTransactionsToERPNext(
+  userId: string,
+  client: ERPNextClient,
+  transactionIds: string[],
+): Promise<ERPNextSyncResult> {
+  const result: ERPNextSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] }
+
+  const transactions = await prisma.transaction.findMany({
+    where: { userId, id: { in: transactionIds } },
+    include: { category: true },
+  })
+
+  for (const tx of transactions) {
+    try {
+      if (tx.externalId?.startsWith("erpnext-")) { result.skipped++; continue }
+      const amountEuro = Math.abs(tx.total ?? 0) / 100
+      const isIncome = tx.type === "income"
+
+      if (isIncome) {
+        const created = await client.createSalesInvoice({
+          customer: tx.merchant || "Unbekannter Kunde",
+          posting_date: tx.issuedAt ? tx.issuedAt.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+          currency: tx.currencyCode || "EUR",
+          items: [{ item_name: tx.name || "Artikel", qty: 1, rate: amountEuro }],
+        })
+        await prisma.transaction.update({ where: { id: tx.id }, data: { externalId: `erpnext-sinv-${created.name}` } })
+      } else {
+        const created = await client.createPurchaseInvoice({
+          supplier: tx.merchant || "Unbekannter Lieferant",
+          posting_date: tx.issuedAt ? tx.issuedAt.toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+          currency: tx.currencyCode || "EUR",
+          items: [{ item_name: tx.name || "Artikel", qty: 1, rate: amountEuro }],
+        })
+        await prisma.transaction.update({ where: { id: tx.id }, data: { externalId: `erpnext-pinv-${created.name}` } })
+      }
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler beim Export von "${tx.name || tx.id}": ${msg}`)
+    }
+  }
+  return result
+}
+
+/**
+ * Payment Entries aus ERPNext synchronisieren (mit explizitem Client)
+ */
+export async function syncPaymentEntries(
+  userId: string,
+  client: ERPNextClient,
+): Promise<ERPNextSyncResult> {
+  const result: ERPNextSyncResult = { created: 0, updated: 0, skipped: 0, errors: [] }
+
+  let entries
+  try { entries = await client.getPaymentEntries() } catch { return result }
+
+  for (const entry of entries) {
+    try {
+      const externalId = `erpnext-pe-${entry.name}`
+      const existing = await prisma.transaction.findFirst({ where: { userId, externalId } })
+      if (existing) { result.skipped++; continue }
+
+      const isReceive = entry.payment_type === "Receive"
+      const amount = isReceive ? entry.received_amount : entry.paid_amount
+
+      await prisma.transaction.create({
+        data: {
+          userId, name: `Zahlung ${entry.name}`, merchant: entry.party || undefined,
+          type: isReceive ? "income" : "expense", total: Math.round(amount * 100),
+          currencyCode: "EUR", issuedAt: new Date(entry.posting_date),
+          sourceType: "erpnext", externalId,
+          description: `${entry.payment_type}: ${entry.party_type} ${entry.party}`,
+        },
+      })
+      result.created++
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Unbekannter Fehler"
+      result.errors.push(`Fehler bei Zahlung "${entry.name}": ${msg}`)
+    }
+  }
+  return result
 }

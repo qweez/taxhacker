@@ -39,19 +39,17 @@ import { getSettings, getLLMSettings } from "@/models/settings"
 import { lockTransaction, lockTransactionsUntil, createReversalBooking } from "@/lib/gobd"
 import { prisma } from "@/lib/db"
 import config from "@/lib/config"
-import { ERPNextClient as ERPNextClientIntegration } from "@/lib/integrations/erpnext-client"
+import { ERPNextClient } from "@/lib/erpnext/client"
 import {
+  fullSync,
+  getERPNextConfig,
   syncCustomersFromERPNext,
   syncSuppliersFromERPNext,
   syncInvoicesFromERPNext,
   exportTransactionsToERPNext,
   syncPaymentEntries,
-} from "@/lib/integrations/erpnext-sync"
-import {
-  generateSageBuchungsstapel as generateSageBuchungsstapelIntegration,
-  generateSageDebitorenExport,
-  generateSageKreditorenExport,
-} from "@/lib/integrations/sage-export"
+} from "@/lib/erpnext/sync"
+import { generateSageArtikelExport } from "@/lib/sage/stammdaten-export"
 import { generateBWA, formatBWAAsCSV, formatBWAAsHTML } from "@/lib/bwa"
 import { generateUStVAData, generateElsterXML } from "@/lib/elster-ustva"
 import { getOpenItems, createOpenItem, markAsPaid, autoMatchPayments, getAgingReport, getDebitSaldenliste, getKreditorSaldenliste } from "@/lib/open-items"
@@ -1156,9 +1154,6 @@ export async function applyInflationAdjustmentAction(
 
 // --- ERPNext Integration ---
 
-import { fullSync, getERPNextConfig } from "@/lib/erpnext/sync"
-import { ERPNextClient } from "@/lib/erpnext/client"
-
 export async function syncToERPNextAction(): Promise<ActionState<any>> {
   try {
     const user = await getCurrentUser()
@@ -1348,7 +1343,7 @@ export async function connectERPNextAction(
   }
 
   try {
-    const client = new ERPNextClientIntegration({ url, apiKey, apiSecret })
+    const client = new ERPNextClient({ url, apiKey, apiSecret })
     const connected = await client.testConnection()
 
     if (!connected) {
@@ -1375,116 +1370,6 @@ export async function connectERPNextAction(
     return { success: true, data: { connected: true } }
   } catch (error: any) {
     return { success: false, error: error.message ?? "ERPNext-Verbindung fehlgeschlagen." }
-  }
-}
-
-export async function syncFromERPNextIntegrationAction(): Promise<ActionState<any>> {
-  const user = await getCurrentUser()
-
-  const rateCheck = checkRateLimit(`${user.id}:erpnextSyncInt`, 10, ONE_HOUR)
-  if (!rateCheck.allowed) {
-    const seconds = Math.ceil(rateCheck.retryAfterMs! / 1000)
-    return { success: false, error: `Zu viele Anfragen. Bitte warte ${seconds} Sekunden.` }
-  }
-
-  try {
-    const profile = await prisma.companyProfile.findUnique({ where: { userId: user.id } })
-    if (!profile?.erpnextUrl || !profile?.erpnextApiKey || !profile?.erpnextApiSecret) {
-      return { success: false, error: "ERPNext ist nicht konfiguriert." }
-    }
-
-    const client = new ERPNextClientIntegration({
-      url: profile.erpnextUrl,
-      apiKey: profile.erpnextApiKey,
-      apiSecret: profile.erpnextApiSecret,
-    })
-
-    const [customers, suppliers, invoices, payments] = await Promise.all([
-      syncCustomersFromERPNext(user.id, client),
-      syncSuppliersFromERPNext(user.id, client),
-      syncInvoicesFromERPNext(user.id, client),
-      syncPaymentEntries(user.id, client),
-    ])
-
-    const combined = {
-      created: customers.created + suppliers.created + invoices.created + payments.created,
-      updated: customers.updated + suppliers.updated + invoices.updated + payments.updated,
-      skipped: customers.skipped + suppliers.skipped + invoices.skipped + payments.skipped,
-      errors: [...customers.errors, ...suppliers.errors, ...invoices.errors, ...payments.errors],
-    }
-
-    await logAuditEvent(user.id, "erpnext.sync_from_integration", undefined, combined)
-    return { success: true, data: combined }
-  } catch (error: any) {
-    return { success: false, error: error.message ?? "ERPNext-Import fehlgeschlagen." }
-  }
-}
-
-export async function exportToERPNextAction(
-  transactionIds: string[],
-): Promise<ActionState<any>> {
-  const user = await getCurrentUser()
-
-  if (!transactionIds || transactionIds.length === 0) {
-    return { success: false, error: "Keine Transaktionen zum Exportieren ausgewählt." }
-  }
-
-  try {
-    const profile = await prisma.companyProfile.findUnique({ where: { userId: user.id } })
-    if (!profile?.erpnextUrl || !profile?.erpnextApiKey || !profile?.erpnextApiSecret) {
-      return { success: false, error: "ERPNext ist nicht konfiguriert." }
-    }
-
-    const client = new ERPNextClientIntegration({
-      url: profile.erpnextUrl,
-      apiKey: profile.erpnextApiKey,
-      apiSecret: profile.erpnextApiSecret,
-    })
-
-    const result = await exportTransactionsToERPNext(user.id, client, transactionIds)
-    await logAuditEvent(user.id, "erpnext.export", undefined, result)
-    return { success: true, data: result }
-  } catch (error: any) {
-    return { success: false, error: error.message ?? "ERPNext-Export fehlgeschlagen." }
-  }
-}
-
-// --- Sage Warenwirtschaft 7.1 Export (Integration) ---
-
-export async function exportSageBuchungsstapelIntegrationAction(
-  dateFrom?: string,
-  dateTo?: string,
-): Promise<ActionState<string>> {
-  const user = await getCurrentUser()
-  try {
-    const csv = await generateSageBuchungsstapelIntegration(
-      user.id,
-      dateFrom ? new Date(dateFrom) : undefined,
-      dateTo ? new Date(dateTo) : undefined,
-    )
-    return { success: true, data: csv }
-  } catch (error: any) {
-    return { success: false, error: error.message ?? "Sage Buchungsstapel-Export fehlgeschlagen." }
-  }
-}
-
-export async function exportSageDebitorenIntegrationAction(): Promise<ActionState<string>> {
-  const user = await getCurrentUser()
-  try {
-    const csv = await generateSageDebitorenExport(user.id)
-    return { success: true, data: csv }
-  } catch (error: any) {
-    return { success: false, error: error.message ?? "Sage Debitoren-Export fehlgeschlagen." }
-  }
-}
-
-export async function exportSageKreditorenIntegrationAction(): Promise<ActionState<string>> {
-  const user = await getCurrentUser()
-  try {
-    const csv = await generateSageKreditorenExport(user.id)
-    return { success: true, data: csv }
-  } catch (error: any) {
-    return { success: false, error: error.message ?? "Sage Kreditoren-Export fehlgeschlagen." }
   }
 }
 

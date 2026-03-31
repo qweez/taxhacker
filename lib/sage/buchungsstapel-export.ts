@@ -10,6 +10,11 @@ import type { Transaction, Category } from "@/prisma/client"
  * Line endings: CR+LF
  */
 
+export type SageExportOptions = {
+  encoding?: "windows-1252" | "utf-8"
+  separator?: string
+}
+
 export type SageBuchung = {
   Belegdatum: string
   Belegnummer: string
@@ -21,12 +26,25 @@ export type SageBuchung = {
   Kostenstelle: string
 }
 
+// Steuerschlüssel: 1=ohne USt, 2=7% VSt, 3=19% VSt, 8=7% USt, 9=19% USt
+export const SAGE_STEUERSCHLUESSEL: Record<string, string> = {
+  keine: "1",
+  vst_7: "2",
+  vst_19: "3",
+  ust_7: "8",
+  ust_19: "9",
+}
+
 /** Sage 7.1 Steuerschlüssel mapping (VAT rate % -> Sage tax key) */
 export const SAGE_TAX_KEYS: Record<string, string> = {
   "19": "3",
   "7": "2",
   "0": "0",
 }
+
+// Steuerfreie Kategorien
+const EXEMPT_CATEGORIES = new Set(["income_0", "insurance", "interest", "bank_fees", "salary", "tax"])
+const REDUCED_RATE_CATEGORIES = new Set(["income_7", "food"])
 
 // SKR04 account mappings (reused from datev-export.ts structure)
 const SKR04_ACCOUNTS: Record<string, string> = {
@@ -94,16 +112,17 @@ function escapeField(value: string): string {
   return value
 }
 
-function guessTaxKey(tx: Transaction & { category?: Category | null }): string {
-  // Default to 19% for most transactions
+function getSteuerschluessel(tx: Transaction & { category?: Category | null }): string {
   const code = tx.categoryCode?.toLowerCase() ?? ""
-  if (code === "income_0" || code === "insurance" || code === "bank_fees" || code === "interest") {
-    return SAGE_TAX_KEYS["0"]
+  const isIncome = tx.type === "income"
+
+  if (EXEMPT_CATEGORIES.has(code)) {
+    return SAGE_STEUERSCHLUESSEL.keine
   }
-  if (code === "income_7") {
-    return SAGE_TAX_KEYS["7"]
+  if (REDUCED_RATE_CATEGORIES.has(code)) {
+    return isIncome ? SAGE_STEUERSCHLUESSEL.ust_7 : SAGE_STEUERSCHLUESSEL.vst_7
   }
-  return SAGE_TAX_KEYS["19"]
+  return isIncome ? SAGE_STEUERSCHLUESSEL.ust_19 : SAGE_STEUERSCHLUESSEL.vst_19
 }
 
 export function transactionToSageBuchung(
@@ -120,7 +139,7 @@ export function transactionToSageBuchung(
     Sollkonto: isIncome ? bankAccount : account,
     Habenkonto: isIncome ? account : bankAccount,
     Betrag: formatSageAmount(tx.total || 0),
-    Steuerschlüssel: guessTaxKey(tx),
+    Steuerschlüssel: getSteuerschluessel(tx),
     Kostenstelle: "",
   }
 }
@@ -142,7 +161,9 @@ export async function generateSageBuchungsstapel(
   userId: string,
   dateFrom?: Date,
   dateTo?: Date,
+  options: SageExportOptions = {},
 ): Promise<string> {
+  const separator = options.separator ?? ";"
   const where: any = { userId }
 
   if (dateFrom || dateTo) {
@@ -157,12 +178,22 @@ export async function generateSageBuchungsstapel(
     orderBy: { issuedAt: "asc" },
   })
 
-  const lines: string[] = [SAGE_HEADER]
+  const header = ["Belegdatum", "Belegnummer", "Buchungstext", "Sollkonto", "Habenkonto", "Betrag", "Steuerschlüssel", "Kostenstelle"].join(separator)
+  const lines: string[] = [header]
 
   for (const tx of transactions) {
     if (!tx.total) continue
     const buchung = transactionToSageBuchung(tx)
-    lines.push(formatSageBuchungRow(buchung))
+    lines.push([
+      escapeField(buchung.Belegdatum),
+      escapeField(buchung.Belegnummer),
+      escapeField(buchung.Buchungstext),
+      buchung.Sollkonto,
+      buchung.Habenkonto,
+      buchung.Betrag,
+      buchung.Steuerschlüssel,
+      buchung.Kostenstelle,
+    ].join(separator))
   }
 
   // Sage 7.1 expects CR+LF line endings
