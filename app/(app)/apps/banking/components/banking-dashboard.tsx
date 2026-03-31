@@ -10,6 +10,7 @@ import {
   syncBankAccountAction,
   deleteBankAccountAction,
   submitTanAction,
+  lookupBankAction,
 } from "../actions"
 import { RefreshCw, Trash2, Plus, Building2, AlertCircle, CheckCircle2, Link2, Shield, FileSpreadsheet } from "lucide-react"
 import ReconciliationPanel from "./reconciliation-panel"
@@ -40,8 +41,25 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
     tanReference: string
   } | null>(null)
   const [tanInput, setTanInput] = useState("")
+  const [blzValue, setBlzValue] = useState("")
+  const [bankNameValue, setBankNameValue] = useState("")
+  const [fintsUrlValue, setFintsUrlValue] = useState("")
+  const [blzLookedUp, setBlzLookedUp] = useState<string | null>(null)
 
   const [addState, addAction, addPending] = useActionState(addBankAccountAction, null)
+
+  async function handleBlzChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value
+    setBlzValue(val)
+    if (/^\d{8}$/.test(val) && val !== blzLookedUp) {
+      setBlzLookedUp(val)
+      const result = await lookupBankAction(val)
+      if (result.success && result.data) {
+        setBankNameValue(result.data.bankName)
+        setFintsUrlValue(result.data.fintsUrl)
+      }
+    }
+  }
 
   async function handleSync(accountId: string) {
     setSyncingId(accountId)
@@ -193,9 +211,9 @@ export default function BankingDashboard({ accounts: initialAccounts }: { accoun
                 <CardTitle className="mb-4">Neues Bankkonto verbinden</CardTitle>
                 <form action={addAction} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <FormInput title="BLZ (Bankleitzahl)" name="bankCode" required />
-                    <FormInput title="Bankname" name="bankName" />
-                    <FormInput title="FinTS URL" name="fintsUrl" placeholder="https://banking-xx.s-fints-pt-xx.de/fints30" required />
+                    <FormInput title="BLZ (Bankleitzahl)" name="bankCode" required value={blzValue} onChange={handleBlzChange} maxLength={8} />
+                    <FormInput title="Bankname" name="bankName" value={bankNameValue} onChange={(e) => setBankNameValue(e.target.value)} />
+                    <FormInput title="FinTS URL" name="fintsUrl" placeholder="https://banking-xx.s-fints-pt-xx.de/fints30" required value={fintsUrlValue} onChange={(e) => setFintsUrlValue(e.target.value)} />
                     <FormInput title="IBAN" name="iban" />
                     <FormInput title="Benutzername (Online-Banking)" name="fintsUser" required />
                     <FormInput title="PIN" name="fintsPin" type="password" required />

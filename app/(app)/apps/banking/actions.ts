@@ -5,6 +5,8 @@ import { getBankAccounts, getBankAccountById, createBankAccount, updateBankAccou
 import { synchronizeBank, fetchStatements, continueSyncWithTan } from "@/lib/fints/client"
 import { syncBankTransactions, findReconciliationCandidates, reconcileTransactions } from "@/lib/fints/sync"
 import { generateDatevExport } from "@/lib/fints/datev-export"
+import { generateUStSummary } from "@/lib/fints/ust-summary"
+import { lookupFinTSInstitute } from "@/lib/fints/institute-lookup"
 import { sendTelegramMessage, formatSyncReport } from "@/lib/fints/telegram"
 import type { FinTSConnectionConfig } from "@/lib/fints/client"
 import { checkRateLimit } from "@/lib/rate-limit"
@@ -311,6 +313,87 @@ export async function getUnreconciledTransactionsAction(): Promise<ActionState<a
       categoryCode: t.categoryCode,
       categoryName: (t as any).category?.name || null,
     })),
+  }
+}
+
+export async function lookupBankAction(
+  blz: string,
+): Promise<ActionState<{ bankName: string; fintsUrl: string; bic: string }>> {
+  if (!blz || blz.length !== 8 || !/^\d{8}$/.test(blz)) {
+    return { success: false, error: "BLZ muss genau 8 Ziffern haben." }
+  }
+
+  const result = lookupFinTSInstitute(blz)
+  if (!result) {
+    return { success: false, error: "Bank nicht gefunden." }
+  }
+
+  return { success: true, data: result }
+}
+
+export type DashboardStats = {
+  currentMonth: { income: number; expenses: number; net: number; count: number }
+  previousMonth: { income: number; expenses: number; net: number; count: number }
+  yearToDate: { income: number; expenses: number; net: number; count: number }
+  unreconciledCount: number
+  lastSyncAt: string | null
+}
+
+export async function getDashboardStatsAction(): Promise<ActionState<DashboardStats>> {
+  const user = await getCurrentUser()
+
+  const now = new Date()
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const yearStart = new Date(now.getFullYear(), 0, 1)
+
+  async function sumPeriod(from: Date, to: Date) {
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        userId: user.id,
+        issuedAt: { gte: from, lt: to },
+      },
+      select: { total: true, type: true },
+    })
+    let income = 0
+    let expenses = 0
+    for (const t of transactions) {
+      if (t.type === "income") {
+        income += t.total ?? 0
+      } else if (t.type === "expense") {
+        expenses += t.total ?? 0
+      }
+    }
+    return { income, expenses, net: income - expenses, count: transactions.length }
+  }
+
+  const [currentMonth, previousMonth, yearToDate, unreconciledCount, lastSync] = await Promise.all([
+    sumPeriod(currentMonthStart, now),
+    sumPeriod(previousMonthStart, currentMonthStart),
+    sumPeriod(yearStart, now),
+    prisma.transaction.count({
+      where: {
+        userId: user.id,
+        sourceType: "fints",
+        isReconciled: false,
+      },
+    }),
+    prisma.finTSBankAccount.findFirst({
+      where: { userId: user.id, isActive: true },
+      orderBy: { lastSyncAt: "desc" },
+      select: { lastSyncAt: true },
+    }),
+  ])
+
+  return {
+    success: true,
+    data: {
+      currentMonth,
+      previousMonth,
+      yearToDate,
+      unreconciledCount,
+      lastSyncAt: lastSync?.lastSyncAt?.toISOString() ?? null,
+    },
   }
 }
 
