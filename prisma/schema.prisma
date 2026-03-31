@@ -40,6 +40,7 @@ model User {
   sessions            Session[]
   appData             AppData[]
   progress            Progress[]
+  bankAccounts        FinTSBankAccount[]
 
   @@map("users")
 }
@@ -191,6 +192,12 @@ model Transaction {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
   text                  String?
+  sourceType            String?   @default("manual") @map("source_type")
+  externalId            String?   @map("external_id")
+  bankAccountId         String?   @map("bank_account_id") @db.Uuid
+  bankAccount           FinTSBankAccount? @relation(fields: [bankAccountId], references: [id])
+  isReconciled          Boolean   @default(false) @map("is_reconciled")
+  reconciledAt          DateTime? @map("reconciled_at")
 
   @@index([userId])
   @@index([projectCode])
@@ -199,7 +206,36 @@ model Transaction {
   @@index([name])
   @@index([merchant])
   @@index([total])
+  @@index([externalId])
+  @@index([bankAccountId])
   @@map("transactions")
+}
+
+model FinTSBankAccount {
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String        @map("user_id") @db.Uuid
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankCode          String        @map("bank_code")
+  bankName          String?       @map("bank_name")
+  accountNumber     String        @map("account_number")
+  iban              String?
+  bic               String?
+  fintsUrl          String        @map("fints_url")
+  fintsUser         String        @map("fints_user")
+  fintsPin          String        @map("fints_pin")
+  bankingInfo       Json?         @map("banking_info")
+  tanMethodId       Int?          @map("tan_method_id")
+  tanMediaName      String?       @map("tan_media_name")
+  lastSyncAt        DateTime?     @map("last_sync_at")
+  lastSyncStatus    String?       @map("last_sync_status")
+  isActive          Boolean       @default(true) @map("is_active")
+  transactions      Transaction[]
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  @@unique([userId, iban])
+  @@index([userId])
+  @@map("fints_bank_accounts")
 }
 
 model Currency {

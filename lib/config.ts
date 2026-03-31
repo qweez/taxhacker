@@ -12,6 +12,8 @@ const envSchema = z.object({
   MISTRAL_MODEL_NAME: z.string().default("mistral-medium-latest"),
   OLLAMA_BASE_URL: z.string().default("http://localhost:11434"),
   OLLAMA_MODEL_NAME: z.string().default("qwen2.5vl:7b"),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_CHAT_ID: z.string().optional(),
   BETTER_AUTH_SECRET: z
     .string()
     .min(16, "Auth secret must be at least 16 characters")

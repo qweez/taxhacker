@@ -32,6 +32,7 @@ export type TransactionFilters = {
   categoryCode?: string
   projectCode?: string
   type?: string
+  sourceType?: string
   page?: number
 }
 
@@ -80,6 +81,10 @@ export const getTransactions = cache(
 
       if (filters.type) {
         where.type = filters.type
+      }
+
+      if (filters.sourceType) {
+        where.sourceType = filters.sourceType
       }
 
       if (filters.ordering) {
