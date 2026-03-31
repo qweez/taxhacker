@@ -33,7 +33,7 @@ import {
   Loader2,
   BookTemplate,
 } from "lucide-react"
-import { SKR04_COMMON_ACCOUNTS } from "@/lib/manual-booking"
+import { SKR04_COMMON_ACCOUNTS } from "@/lib/skr04-accounts"
 import {
   listBookingSessionsAction,
   createBookingSessionAction,
