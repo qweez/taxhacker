@@ -1927,3 +1927,268 @@ export async function exportEBilanzXBRLAction(year: number): Promise<ActionState
     return { success: false, error: error.message ?? "XBRL-Export fehlgeschlagen." }
   }
 }
+
+// --- Manual Booking Session & Entry actions ---
+
+import {
+  getBookingSessions,
+  createBookingSession,
+  updateBookingSession,
+  deleteBookingSession,
+  lockBookingSession,
+  getBookingEntries,
+  createBookingEntry,
+  updateBookingEntry,
+  deleteBookingEntry,
+  duplicateBookingEntry,
+  postBookingSession,
+  getBookingTemplates,
+  type CreateSessionData,
+  type CreateEntryData,
+} from "@/lib/manual-booking"
+
+export async function listBookingSessionsAction(
+  year?: number,
+  month?: number,
+): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const sessions = await getBookingSessions(user.id, year, month)
+    return {
+      success: true,
+      data: sessions.map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        periodMonth: s.periodMonth,
+        periodYear: s.periodYear,
+        status: s.status,
+        lockedAt: s.lockedAt?.toISOString() ?? null,
+        createdAt: s.createdAt.toISOString(),
+        entryCount: s._count.entries,
+        totalAmount: s.entries.reduce((sum: number, e: { amount: number }) => sum + e.amount, 0),
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Buchungssitzungen." }
+  }
+}
+
+export async function createBookingSessionAction(
+  data: CreateSessionData,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const session = await createBookingSession(user.id, data)
+    return { success: true, data: session }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erstellen der Buchungssitzung." }
+  }
+}
+
+export async function updateBookingSessionAction(
+  id: string,
+  data: Partial<CreateSessionData>,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const session = await updateBookingSession(id, user.id, data)
+    return { success: true, data: session }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Aktualisieren der Buchungssitzung." }
+  }
+}
+
+export async function deleteBookingSessionAction(
+  id: string,
+): Promise<ActionState> {
+  const user = await getCurrentUser()
+  try {
+    await deleteBookingSession(id, user.id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Löschen der Buchungssitzung." }
+  }
+}
+
+export async function lockBookingSessionAction(
+  id: string,
+): Promise<ActionState> {
+  const user = await getCurrentUser()
+  try {
+    await lockBookingSession(id, user.id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Festschreiben der Buchungssitzung." }
+  }
+}
+
+export async function listBookingEntriesAction(
+  sessionId: string,
+): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const entries = await getBookingEntries(sessionId, user.id)
+    return {
+      success: true,
+      data: entries.map(e => ({
+        id: e.id,
+        bookingDate: e.bookingDate.toISOString(),
+        receiptNumber: e.receiptNumber,
+        receiptDate: e.receiptDate?.toISOString() ?? null,
+        description: e.description,
+        debitAccount: e.debitAccount,
+        creditAccount: e.creditAccount,
+        amount: e.amount,
+        taxRate: e.taxRate ? Number(e.taxRate) : null,
+        taxAmount: e.taxAmount,
+        costCenter: e.costCenter,
+        merchant: e.merchant,
+        notes: e.notes,
+        isTemplate: e.isTemplate,
+        templateName: e.templateName,
+        transactionId: e.transactionId,
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Buchungseinträge." }
+  }
+}
+
+export async function createBookingEntryAction(
+  sessionId: string,
+  data: {
+    bookingDate: string
+    receiptNumber?: string
+    receiptDate?: string
+    description: string
+    debitAccount: string
+    creditAccount: string
+    amount: number
+    taxRate?: number
+    taxAmount?: number
+    costCenter?: string
+    merchant?: string
+    notes?: string
+    isTemplate?: boolean
+    templateName?: string
+  },
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const entryData: CreateEntryData = {
+      ...data,
+      bookingDate: new Date(data.bookingDate),
+      receiptDate: data.receiptDate ? new Date(data.receiptDate) : undefined,
+    }
+    const entry = await createBookingEntry(sessionId, user.id, entryData)
+    return { success: true, data: entry }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Erstellen des Buchungseintrags." }
+  }
+}
+
+export async function updateBookingEntryAction(
+  entryId: string,
+  data: {
+    bookingDate?: string
+    receiptNumber?: string
+    receiptDate?: string
+    description?: string
+    debitAccount?: string
+    creditAccount?: string
+    amount?: number
+    taxRate?: number
+    taxAmount?: number
+    costCenter?: string
+    merchant?: string
+    notes?: string
+    isTemplate?: boolean
+    templateName?: string
+  },
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const entryData: Partial<CreateEntryData> = {
+      ...data,
+      bookingDate: data.bookingDate ? new Date(data.bookingDate) : undefined,
+      receiptDate: data.receiptDate ? new Date(data.receiptDate) : undefined,
+    }
+    const entry = await updateBookingEntry(entryId, user.id, entryData)
+    return { success: true, data: entry }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Aktualisieren des Buchungseintrags." }
+  }
+}
+
+export async function deleteBookingEntryAction(
+  entryId: string,
+): Promise<ActionState> {
+  const user = await getCurrentUser()
+  try {
+    await deleteBookingEntry(entryId, user.id)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Löschen des Buchungseintrags." }
+  }
+}
+
+export async function duplicateBookingEntryAction(
+  entryId: string,
+): Promise<ActionState<any>> {
+  const user = await getCurrentUser()
+  try {
+    const entry = await duplicateBookingEntry(entryId, user.id)
+    return { success: true, data: entry }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Duplizieren des Buchungseintrags." }
+  }
+}
+
+export async function postBookingSessionAction(
+  sessionId: string,
+): Promise<ActionState<{ transactionCount: number; transactionIds: string[] }>> {
+  const user = await getCurrentUser()
+  try {
+    const result = await postBookingSession(sessionId, user.id)
+    return {
+      success: true,
+      data: {
+        transactionCount: result.transactionCount,
+        transactionIds: result.transactionIds,
+      },
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Verbuchen der Sitzung." }
+  }
+}
+
+export async function getBookingTemplatesAction(): Promise<ActionState<any[]>> {
+  const user = await getCurrentUser()
+  try {
+    const templates = await getBookingTemplates(user.id)
+    return {
+      success: true,
+      data: templates.map(t => ({
+        id: t.id,
+        bookingDate: t.bookingDate.toISOString(),
+        receiptNumber: t.receiptNumber,
+        receiptDate: t.receiptDate?.toISOString() ?? null,
+        description: t.description,
+        debitAccount: t.debitAccount,
+        creditAccount: t.creditAccount,
+        amount: t.amount,
+        taxRate: t.taxRate ? Number(t.taxRate) : null,
+        taxAmount: t.taxAmount,
+        costCenter: t.costCenter,
+        merchant: t.merchant,
+        notes: t.notes,
+        isTemplate: t.isTemplate,
+        templateName: t.templateName,
+        transactionId: t.transactionId,
+      })),
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message ?? "Fehler beim Laden der Vorlagen." }
+  }
+}
